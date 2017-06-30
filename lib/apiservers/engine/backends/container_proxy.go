@@ -685,6 +685,9 @@ func (c *ContainerProxy) StreamContainerStats(ctx context.Context, config *conve
 func (c *ContainerProxy) StatPath(ctx context.Context, name, path string) (*types.ContainerPathStat, error) {
 	defer trace.End(trace.Begin(name))
 
+	/* need to figure out whether the container is on or off, if on get*/
+
+	// TODO: work on personality side and populate correct device id and target path
 	vc := cache.ContainerCache().GetContainer(name)
 	if vc == nil {
 		return nil, NotFoundError(name)
@@ -692,8 +695,10 @@ func (c *ContainerProxy) StatPath(ctx context.Context, name, path string) (*type
 
 	statPathParams := storage.
 	NewStatPathParamsWithContext(ctx).
-		WithObjectID(vc.ContainerID).
-		WithTargetPath(path)
+		WithDeviceID(vc.ContainerID).
+		WithAbsTargetPath(path).
+		WithRelativeTargetPath(path)
+
 	statPathOk, err := c.client.Storage.StatPath(statPathParams)
 	if err != nil {
 		log.Debugln(spew.Sdump(err))

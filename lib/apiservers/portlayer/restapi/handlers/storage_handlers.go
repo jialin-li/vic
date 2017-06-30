@@ -15,10 +15,8 @@
 package handlers
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
@@ -518,96 +516,52 @@ func (h *StorageHandlersImpl) VolumeJoin(params storage.VolumeJoinParams) middle
 }
 
 func (h *StorageHandlersImpl) StatPath(params storage.StatPathParams) middleware.Responder {
-	defer trace.End(trace.Begin(params.ObjectID))
+	defer trace.End(trace.Begin(params.DeviceID))
 
-	vc := epl.Containers.Container(params.ObjectID)
+	/* do offline container stat path, if tails do online */
+	// TODO: add the relative path
+	//fileInfo, err := splc.OfflineStatPath(params.DeviceID, params.AbsTargetPath)
+
+
+	// assume it's online container and obj id is container id first.
+	vc := epl.Containers.Container(params.DeviceID)
 	if vc == nil {
+
 		log.Debugln("%#v", spew.Sdump(epl.Containers))
 		return storage.NewStatPathNotFound()
 	}
 
-	file, err := splc.StatPath(context.Background(), vc, params.TargetPath)
+	file, err := splc.OnlineStatPath(context.Background(), vc, params.AbsTargetPath)
 	if err != nil {
 		return storage.NewStatPathInternalServerError()
 	}
 
-	headers := &models.StatPathFileInfoResponse{
-		Name:       filepath.Base(file.Path),
-		LinkTarget: file.Attributes.GetGuestFileAttributes().SymlinkTarget,
-		Size:       file.Size,
-	}
-
+	var mode uint32
 	switch types.GuestFileType(file.Type) {
 	case types.GuestFileTypeDirectory:
-		headers.Mode = uint32(os.ModeDir)
+		mode = uint32(os.ModeDir)
 	case types.GuestFileTypeSymlink:
-		headers.Mode = uint32(os.ModeSymlink)
+		mode = uint32(os.ModeSymlink)
 	}
 
 	return storage.
-	NewStatPathOK().
-		WithMode(headers.Mode).
-		WithLinkTarget(headers.LinkTarget).
-		WithName(headers.Name).
-		WithSize(headers.Size)
+		NewStatPathOK().
+		WithMode(mode).
+		WithLinkTarget(file.Attributes.GetGuestFileAttributes().SymlinkTarget).
+		WithName(filepath.Base(file.Path)).
+		WithSize(file.Size)
 }
 
 // ExportArchive exports a tar archive from the container at target path.
 func (h *StorageHandlersImpl) ExportArchive(params storage.ExportArchiveParams) middleware.Responder {
 	defer trace.End(trace.Begin(params.ObjectID))
 
-	log.Infof("reading test file")
-	// Do whatever you need to do to get an io.Reader
-	buf, err := ioutil.ReadFile("/tmp/test.tar.gz")
-	if err != nil {
-		return storage.NewExportArchiveInternalServerError()
-	}
-
-	log.Infof("streaming buffer back to caller")
-	// Return the data back to the caller
-	// reader := bytes.NewReader([]byte("This is a test"))
-	log.Infof(" Returning %d bytes for buf [%s]", len(buf), string(buf))
-	reader := bytes.NewReader(buf)
-	detachableOut := NewFlushingReader(reader)
-
-	return NewStreamOutputHandler("exportArchive").WithPayload(detachableOut, params.ID, nil)
 	return storage.NewExportArchiveOK()
 }
 
 // ImportArchive imports a tar stream to the container at the target path
 func (h *StorageHandlersImpl) ImportArchive(params storage.ImportArchiveParams) middleware.Responder {
 	defer trace.End(trace.Begin(""))
-
-	// var filterSpec map[string]string
-	// if decodedSpec, err := base64.StdEncoding.DecodeString(*params.FilterSpec); err == nil {
-	// 	if err = json.Unmarshal(decodedSpec, filterSpec); err != nil {
-	// 		log.Errorf("Unable to unmarshal decoded spec: %s", err)
-	// 		return storage.NewImportArchiveInternalServerError()
-	// 	}
-	// }
-
-	// log.Infof("Creating reader for %#v", params)
-	// detachableIn := NewFlushingReader(params.Archive)
-	// // Do whatever you need to do to get an io.Reader
-	// if err := os.Remove("/tmp/test.tar.gz"); err != nil {
-	// 	log.Error(err.Error())
-	// }
-	// testfile, err := os.OpenFile("/tmp/test.tar.gz", os.O_RDWR|os.O_CREATE, 0755)
-	// if err != nil {
-	// 	log.Error("Couldn't open the test file")
-	// }
-
-	// // This is where you need to take the reader and do something with the tar data
-	// // log.Infof("Writing tar file to tmp file %s", tmpfile.Name())
-	// _, err = io.Copy(testfile, detachableIn)
-	// if err != nil {
-	// 	params.Archive.Close()
-	// 	return storage.NewImportArchiveInternalServerError()
-	// }
-
-	// log.Infof("Successful, closing up readers and writers")
-	// testfile.Close()
-	// params.Archive.Close()
 
 	return storage.NewImportArchiveOK()
 }

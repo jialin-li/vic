@@ -19,6 +19,7 @@ package compute
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -30,7 +31,7 @@ import (
 	"github.com/vmware/vic/pkg/trace"
 )
 
-func StatPath(ctx context.Context, vc *exec.Container, path string) (*types.GuestFileInfo, error) {
+func OnlineStatPath(ctx context.Context, vc *exec.Container, path string) (*types.GuestFileInfo, error) {
 	defer trace.End(trace.Begin(vc.Config.Name))
 
 	// below implementation of searching one directory up does not work at root, but we can assume root is a directory
@@ -69,4 +70,10 @@ func StatPath(ctx context.Context, vc *exec.Container, path string) (*types.Gues
 	}
 
 	return nil, fmt.Errorf("file %s not found on container %s", path, vc.ExecConfig.ID)
+}
+
+func OfflineStatPath(deviceId string, path string) (os.FileInfo, error) {
+	// given a device id check first with volume store
+
+	return nil, nil
 }
