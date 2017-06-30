@@ -37,6 +37,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -76,6 +77,8 @@ import (
 	"github.com/vmware/vic/lib/metadata"
 	"github.com/vmware/vic/pkg/trace"
 	"github.com/vmware/vic/pkg/vsphere/sys"
+
+	"github.com/davecgh/go-spew/spew"
 )
 
 // VicContainerProxy interface
@@ -92,8 +95,13 @@ type VicContainerProxy interface {
 	UnbindInteraction(handle string, name string, id string) (string, error)
 
 	CommitContainerHandle(handle, containerID string, waitTime int32) error
+	AttachStreams(ctx context.Context, ac *AttachConfig, stdin io.ReadCloser, stdout, stderr io.Writer) error
 	StreamContainerLogs(name string, out io.Writer, started chan struct{}, showTimestamps bool, followLogs bool, since int64, tailLines int64) error
 	StreamContainerStats(ctx context.Context, config *convert.ContainerStatsConfig) error
+
+	StatPath(ctx context.Context, name, path string) (*types.ContainerPathStat, error)
+	GiveStream(ctx context.Context, deviceID, destination string, filterSpec map[string]string) (io.Reader, error)
+	ImportStream(ctx context.Context, deviceID, destination string, filterSpec map[string]string) (io.WriteCloser, error)
 
 	Stop(vc *viccontainer.VicContainer, name string, seconds *int, unbound bool) error
 	State(vc *viccontainer.VicContainer) (*types.ContainerState, error)
@@ -101,7 +109,6 @@ type VicContainerProxy interface {
 	Signal(vc *viccontainer.VicContainer, sig uint64) error
 	Resize(id string, height, width int32) error
 	Rename(vc *viccontainer.VicContainer, newName string) error
-	AttachStreams(ctx context.Context, ac *AttachConfig, stdin io.ReadCloser, stdout, stderr io.Writer) error
 
 	Handle(id, name string) (string, error)
 	Client() *client.PortLayer
@@ -327,9 +334,9 @@ func (c *ContainerProxy) AddContainerToScope(handle string, config types.Contain
 		addContRes, err := c.client.Scopes.AddContainer(scopes.NewAddContainerParamsWithContext(ctx).
 			WithScope(netConf.NetworkName).
 			WithConfig(&models.ScopesAddContainerConfig{
-				Handle:        handle,
-				NetworkConfig: netConf,
-			}))
+			Handle:        handle,
+			NetworkConfig: netConf,
+		}))
 
 		if err != nil {
 			log.Errorf("ContainerProxy.AddContainerToScope: Scopes error: %s", err.Error())
@@ -456,8 +463,8 @@ func (c *ContainerProxy) AddLoggingToContainer(handle string, config types.Conta
 
 	response, err := c.client.Logging.LoggingJoin(logging.NewLoggingJoinParamsWithContext(ctx).
 		WithConfig(&models.LoggingJoinConfig{
-			Handle: handle,
-		}))
+		Handle: handle,
+	}))
 	if err != nil {
 		return "", InternalServerError(err.Error())
 	}
@@ -483,8 +490,8 @@ func (c *ContainerProxy) AddInteractionToContainer(handle string, config types.C
 
 	response, err := c.client.Interaction.InteractionJoin(interaction.NewInteractionJoinParamsWithContext(ctx).
 		WithConfig(&models.InteractionJoinConfig{
-			Handle: handle,
-		}))
+		Handle: handle,
+	}))
 	if err != nil {
 		return "", InternalServerError(err.Error())
 	}
@@ -507,9 +514,9 @@ func (c *ContainerProxy) BindInteraction(handle string, name string, id string) 
 	bind, err := c.client.Interaction.InteractionBind(
 		interaction.NewInteractionBindParamsWithContext(ctx).
 			WithConfig(&models.InteractionBindConfig{
-				Handle: handle,
-				ID:     id,
-			}))
+			Handle: handle,
+			ID:     id,
+		}))
 	if err != nil {
 		switch err := err.(type) {
 		case *interaction.InteractionBindInternalServerError:
@@ -536,9 +543,9 @@ func (c *ContainerProxy) UnbindInteraction(handle string, name string, id string
 	unbind, err := c.client.Interaction.InteractionUnbind(
 		interaction.NewInteractionUnbindParamsWithContext(ctx).
 			WithConfig(&models.InteractionUnbindConfig{
-				Handle: handle,
-				ID:     id,
-			}))
+			Handle: handle,
+			ID:     id,
+		}))
 	if err != nil {
 		return "", InternalServerError(err.Error())
 	}
@@ -671,6 +678,67 @@ func (c *ContainerProxy) StreamContainerStats(ctx context.Context, config *conve
 		}
 	}
 	return nil
+}
+
+// StatPath requests the portlayer to stat the filesystem resource at the
+// specified path in the container vc.
+func (c *ContainerProxy) StatPath(ctx context.Context, name, path string) (*types.ContainerPathStat, error) {
+	defer trace.End(trace.Begin(name))
+
+	vc := cache.ContainerCache().GetContainer(name)
+	if vc == nil {
+		return nil, NotFoundError(name)
+	}
+
+	statPathParams := storage.
+	NewStatPathParamsWithContext(ctx).
+		WithObjectID(vc.ContainerID).
+		WithTargetPath(path)
+	statPathOk, err := c.client.Storage.StatPath(statPathParams)
+	if err != nil {
+		log.Debugln(spew.Sdump(err))
+		log.Debugln(spew.Sdump(err.Error()))
+		return nil, InternalServerError(err.Error())
+	}
+
+	return &types.ContainerPathStat{
+		Name:       statPathOk.Name,
+		Mode:       os.FileMode(statPathOk.Mode),
+		Size:       statPathOk.Size,
+		LinkTarget: statPathOk.LinkTarget,
+	}, nil
+}
+
+// ImportStream initializes a write stream for a path.  This is usually called
+// for getting a writer during docker cp TO container.
+func (c *ContainerProxy) ImportStream(ctx context.Context, deviceID, destination string, filterSpec map[string]string) (io.WriteCloser, error) {
+	defer trace.End(trace.Begin(""))
+
+	return nil, InternalServerError("Not Implemented -- ImportStrem")
+}
+
+// GiveStream initializes a read stream for a path. This is usually called for
+// getting a reader during docker cp FROM container.
+func (c *ContainerProxy) GiveStream(ctx context.Context, deviceID, destination string, filterSpec map[string]string) (io.Reader, error) {
+	defer trace.End(trace.Begin(deviceID))
+
+	vc := cache.ContainerCache().GetContainer(deviceID)
+	if vc == nil {
+		return nil, NotFoundError(deviceID)
+	}
+
+	exportArchiveParams := storage.
+	NewExportContainerArchiveParamsWithContext(ctx).
+		WithObjectID(deviceID).
+		WithTargetPath(path)
+	exportArchiveResp, err := c.client.Storage.ExportArchive(exportArchiveParams)
+	// if err != nil {
+	// 	return nil, InternalServerError(err.Error())
+	// }
+
+	// return exportArvhiceResp.
+
+	return nil, InternalServerError("Not Implemented -- GiveStream")
 }
 
 // Stop will stop (shutdown) a VIC container.
@@ -1455,12 +1523,12 @@ func hostConfigFromContainerInfo(vc *viccontainer.VicContainer, info *models.Con
 	//
 	// The values we fill out below is an abridged list of the original struct.
 	resourceConfig := container.Resources{
-	// Applicable to all platforms
-	//			CPUShares int64 `json:"CpuShares"` // CPU shares (relative weight vs. other containers)
-	//			Memory    int64 // Memory limit (in bytes)
+		// Applicable to all platforms
+		//			CPUShares int64 `json:"CpuShares"` // CPU shares (relative weight vs. other containers)
+		//			Memory    int64 // Memory limit (in bytes)
 
-	//			// Applicable to UNIX platforms
-	//			DiskQuota            int64           // Disk limit (in bytes)
+		//			// Applicable to UNIX platforms
+		//			DiskQuota            int64           // Disk limit (in bytes)
 	}
 
 	hostConfig.VolumeDriver = portlayerName
@@ -1503,6 +1571,12 @@ func mountsFromContainerInfo(vc *viccontainer.VicContainer, info *models.Contain
 	// Iterate through info.VolumeConfig and build the hostconfig.bind config.volumes
 
 	// Derive the mount data
+	return mountsFromContainer(vc)
+}
+
+// mountsFromContainer derives []types.MountPoint (used in inspect) from the cached container
+// data.
+func mountsFromContainer(vc *viccontainer.VicContainer) []types.MountPoint {
 	var mounts []types.MountPoint
 
 	rawAnonVolumes := make([]string, 0, len(vc.Config.Volumes))
@@ -1518,7 +1592,7 @@ func mountsFromContainerInfo(vc *viccontainer.VicContainer, info *models.Contain
 	for _, vol := range volList {
 		mountConfig := types.MountPoint{
 			Type:        mount.TypeVolume,
-			Driver:      DefaultVolumeDriver,
+			Driver:      "vsphere",
 			Name:        vol.ID,
 			Source:      vol.ID,
 			Destination: vol.Dest,
@@ -1955,3 +2029,19 @@ func copyEscapable(dst io.Writer, src io.ReadCloser, keys []byte) (written int64
 }
 
 // End
+
+//------------------------------------
+// Stream Archive Utility Functions
+//------------------------------------
+
+// PackCopyArchive packs a filespec map and the contents of an archive tar
+// into a new tar and returns a reader for it.
+func packCopyArchive(pathspec map[string]string, archiveReader io.Reader) (io.ReadCloser, error) {
+	return nil, nil
+}
+
+// unpackCopyArchive unpacks a copy archive into a filespec map and a reader
+// that the caller can use to read the actual tar archive.
+func unpackCopyArchive(packedArchiveReader io.Reader) (io.Reader, error) {
+	return nil, nil
+}
