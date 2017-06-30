@@ -5,23 +5,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/gob"
-	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
-	"os"
 	"strings"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/tchap/go-patricia/patricia"
 
-	"github.com/vmware/vic/lib/apiservers/engine/backends/cache"
-	viccontainer "github.com/vmware/vic/lib/apiservers/engine/backends/container"
-	"github.com/vmware/vic/pkg/trace"
-
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/pkg/archive"
-	"github.com/docker/docker/api/types"
 	"github.com/vmware/vic/lib/apiservers/engine/backends/cache"
 	viccontainer "github.com/vmware/vic/lib/apiservers/engine/backends/container"
 	"github.com/vmware/vic/pkg/trace"
@@ -30,7 +23,7 @@ import (
 // ContainerArchivePath creates an archive of the filesystem resource at the
 // specified path in the container identified by the given name. Returns a
 // tar archive of the resource and whether it was a directory or a single file.
-func (c *Container) ContainerArchivePath(name string, path string) (content io.ReadCloser, stat *types.ContainerPathStat, err error) {
+func (c *Container) ContainerArchivePath(name string, path string) (io.ReadCloser, *types.ContainerPathStat, error) {
 	defer trace.End(trace.Begin(name))
 
 	vc := cache.ContainerCache().GetContainer(name)
@@ -43,19 +36,24 @@ func (c *Container) ContainerArchivePath(name string, path string) (content io.R
 		return nil, nil, err
 	}
 
-	mounts := mountsFromContainer(vc)
-	mounts = append(mounts, types.MountPoint{Destination: "/"})
-	readerMap := NewArchiveStreamReaderMap(vc, mounts, path)
-
-	var readers []io.Reader
-	for _, reader := range readerMap.Readers() {
-		readers = append(readers, reader)
+	reader, err := c.containerProxy.ExportReader(context.Background(), vc.ContainerID, path, nil)
+	if err != nil {
+		return nil, nil, err
 	}
 
-	finalTarReader := io.MultiReader(readers...)
+	// mounts := mountsFromContainer(vc)
+	// mounts = append(mounts, types.MountPoint{Destination: "/"})
+	// readerMap := NewArchiveStreamReaderMap(vc, mounts, path)
 
-	return ioutil.NopCloser(finalTarReader), stat, nil
-)
+	// var readers []io.Reader
+	// for _, reader := range readerMap.Readers() {
+	// 	readers = append(readers, reader)
+	// }
+
+	// finalTarReader := io.MultiReader(readers...)
+
+	return ioutil.NopCloser(reader), stat, nil
+}
 
 // ContainerCopy performs a deprecated operation of archiving the resource at
 // the specified path in the container identified by the given name.

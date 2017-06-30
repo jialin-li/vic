@@ -725,7 +725,31 @@ func (c *ContainerProxy) ExportReader(ctx context.Context, deviceID, source stri
 
 	pipeReader, pipeWriter := io.Pipe()
 
+	done := make(chan struct{})
 	go func() {
+		// make sure we get out of io.Copy if context is canceled
+		select {
+		case <-ctx.Done():
+			// This will cause the transport to the API client to be shut down, so all output
+			// streams will get closed as well.
+			// See the closer in container_routes.go:postContainersAttach
+
+			// We're closing this here to disrupt the io.Copy below
+			// TODO: seems like we should be providing an io.Copy impl with ctx argument that honors
+			// cancelation with the amount of code dedicated to working around it
+
+			// TODO: I think this still leaves a race between closing of the API client transport and
+			// copying of the output streams, it's just likely the error will be dropped as the transport is
+			// closed when it occurs.
+			// We should move away from needing to close transports to interrupt reads.
+			pipeWriter.Close()
+		case <-done:
+		}
+	}()
+
+	go func() {
+		defer close(done)
+
 		params := storage.NewExportArchiveParamsWithContext(ctx).
 			WithDeviceID(deviceID).
 			WithSource(source)

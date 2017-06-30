@@ -15,12 +15,8 @@
 package handlers
 
 import (
-	"bufio"
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -29,8 +25,6 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/go-openapi/runtime/middleware"
-
-	"bytes"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/vmware/govmomi/vim25/types"
@@ -555,15 +549,15 @@ func (h *StorageHandlersImpl) StatPath(params storage.StatPathParams) middleware
 func (h *StorageHandlersImpl) ExportArchive(params storage.ExportArchiveParams) middleware.Responder {
 	defer trace.End(trace.Begin(""))
 
-	// | ------------- |
-	// | START ONLINE  |
-	// | ------------- |
-	vc := epl.Containers.Container(params.ObjectID)
+	// | ------------ |
+	// | START ONLINE |
+	// | ------------ |
+	vc := epl.Containers.Container(params.DeviceID)
 	if vc == nil {
-		log.Errorf("Container %s not found", params.ObjectID)
+		log.Errorf("Container %s not found", params.DeviceID)
 		return storage.NewExportArchiveNotFound()
 	}
-	reader, err := splc.FileTransferFromGuest(context.Background(), vc, params.TargetPath)
+	reader, err := splc.FileTransferFromGuest(context.Background(), vc, params.Source)
 	if err != nil {
 		log.Errorf("FileTransferFromGuest error: %#v", err)
 		return storage.NewExportArchiveInternalServerError()
@@ -571,12 +565,11 @@ func (h *StorageHandlersImpl) ExportArchive(params storage.ExportArchiveParams) 
 
 	detachableOut := NewFlushingReader(reader)
 	log.Debugf("Returning %#v --- %#v", reader, detachableOut)
-	return NewStreamOutputHandler("exportArchive").WithPayload(detachableOut, params.ObjectID, nil)
+	return NewStreamOutputHandler("exportArchive").WithPayload(detachableOut, params.DeviceID, nil)
 
-	// | ------------- |
-	// | END ONLINE    |
-	// | ------------- |
-
+	// | ---------- |
+	// | END ONLINE |
+	// | ---------- |
 	// // Return the data back to the caller
 	// reader := bytes.NewReader([]byte("This is a test"))
 	// detachableOut := NewFlushingReader(reader)
@@ -588,43 +581,46 @@ func (h *StorageHandlersImpl) ExportArchive(params storage.ExportArchiveParams) 
 func (h *StorageHandlersImpl) ImportArchive(params storage.ImportArchiveParams) middleware.Responder {
 	defer trace.End(trace.Begin(""))
 
-	var filterSpec map[string]string
-	if params.FilterSpec != nil && len(*params.FilterSpec) > 0 {
-		if decodedSpec, err := base64.StdEncoding.DecodeString(*params.FilterSpec); err == nil {
-			if len(decodedSpec) > 0 {
-				log.Info("decoded spec = %s", string(decodedSpec))
-				if err = json.Unmarshal(decodedSpec, filterSpec); err != nil {
-					log.Errorf("Unable to unmarshal decoded spec: %s", err)
-					return storage.NewImportArchiveInternalServerError()
-				}
-			} else {
-				log.Info("** filterSpec is empty")
-				filterSpec = make(map[string]string)
-			}
-		}
-	} else {
-		log.Info("** filterSpec is empty")
-		filterSpec = make(map[string]string)
-	}
+	// // | ------------ |
+	// // | START ONLINE |
+	// // | ------------ |
+	// vc := epl.Containers.Container(params.ObjectID)
+	// if vc == nil {
+	// 	log.Errorf("Container %s not found", params.ObjectID)
+	// 	return storage.NewExportArchiveNotFound()
+	// }
 
-	log.Infof("Creating reader for %#v", params)
-	detachableIn := NewFlushingReader(params.Archive)
+	// detachableIn := NewFlushingReader(params.Archive)
+	// err := splc.FileTransferToGuest(context.Background(), vc, params.TargetPath, detachableIn)
+	// if err != nil {
+	// 	log.Errorf("FileTransferFromGuest error: %#v", err)
+	// 	return storage.NewExportArchiveInternalServerError()
+	// }
 
-	// This is where you need to take the reader and do something with the tar data
-	var buf bytes.Buffer
-	writer := bufio.NewWriter(&buf)
-	_, err := io.Copy(writer, detachableIn)
-	if err != nil {
-		log.Errorf("Copy tar stream returned error - %s", err.Error())
-		params.Archive.Close()
-		return storage.NewImportArchiveInternalServerError()
-	}
+	// detachableOut := NewFlushingReader(reader)
+	// log.Debugf("Returning %#v --- %#v", reader, detachableOut)
+	// return NewStreamOutputHandler("exportArchive").WithPayload(detachableOut, params.ObjectID, nil)
 
-	params.Archive.Close()
+	// // | ---------- |
+	// // | END ONLINE |
+	// // | ---------- |
+	// // ------------------------------------------------------------------------------------------------
 
-	log.Infof(buf.String())
+	// // This is where you need to take the reader and do something with the tar data
+	// var buf bytes.Buffer
+	// writer := bufio.NewWriter(&buf)
+	// _, err := io.Copy(writer, detachableIn)
+	// if err != nil {
+	// 	log.Errorf("Copy tar stream returned error - %s", err.Error())
+	// 	params.Archive.Close()
+	// 	return storage.NewImportArchiveInternalServerError()
+	// }
 
-	return storage.NewImportArchiveOK()
+	// params.Archive.Close()
+
+	// log.Infof(buf.String())
+
+	return storage.NewImportArchiveInternalServerError()
 }
 
 //utility functions

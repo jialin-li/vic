@@ -45,7 +45,7 @@ func FileTransferFromGuest(ctx context.Context, vc *exec.Container, path string)
 	// authenticate client and parse container host/port
 	guestInfo, err := filemgr.InitiateFileTransferFromGuest(ctx, &auth, path)
 	if err != nil {
-		log.Errorf("INIT ERR: %#v", err)
+		log.Errorf("INIT ERR: %#v --- %#v --- %#v --- %#v", err, ctx, &auth, path)
 		return nil, err
 	}
 
@@ -56,10 +56,48 @@ func FileTransferFromGuest(ctx context.Context, vc *exec.Container, path string)
 	}
 
 	rc, _, err := client.Download(url, &soap.DefaultDownload)
+	defer rc.Close()
+
 	if err != nil {
 		log.Errorf("DOWNLOAD ERR: %#v", err)
 		return nil, err
 	}
 	log.Debugf("DOWNLOADED %#v", rc)
 	return rc, nil
+}
+
+func FileTransferToGuest(ctx context.Context, vc *exec.Container, path string, reader io.Reader) error {
+	defer trace.End(trace.Begin(vc.Config.Name))
+
+	// set up file manager
+	client := vc.VIM25Reference()
+	filemgr, err := guest.NewOperationsManager(client, vc.VMReference()).FileManager(ctx)
+	if err != nil {
+		log.Errorf("OPS MGR ERR: %#v", err)
+		return err
+	}
+	auth := types.NamePasswordAuthentication{
+		Username: vc.ExecConfig.ID,
+	}
+
+	// authenticate client and parse container host/port
+	guestTransferURL, err := filemgr.InitiateFileTransferToGuest(ctx, &auth, path, &types.GuestPosixFileAttributes{}, 0, true)
+	if err != nil {
+		log.Errorf("INIT ERR: %#v", err)
+		return err
+	}
+
+	url, err := client.ParseURL(guestTransferURL)
+	if err != nil {
+		log.Errorf("PARSE ERR: %#v", err)
+		return err
+	}
+
+	err = client.Upload(reader, url, &soap.DefaultUpload)
+	if err != nil {
+		log.Errorf("UPLOAD ERR: %#v", err)
+		return err
+	}
+	log.Debugf("UPLOADED %#v", reader)
+	return nil
 }
