@@ -39,6 +39,7 @@ import (
 	"github.com/vmware/vic/lib/portlayer/util"
 	"github.com/vmware/vic/pkg/trace"
 	"github.com/vmware/vic/pkg/vsphere/datastore"
+	"github.com/vmware/vic/pkg/vsphere/sys"
 )
 
 // StorageHandlersImpl is the receiver for all of the storage handler methods
@@ -518,10 +519,28 @@ func (h *StorageHandlersImpl) VolumeJoin(params storage.VolumeJoinParams) middle
 func (h *StorageHandlersImpl) StatPath(params storage.StatPathParams) middleware.Responder {
 	defer trace.End(trace.Begin(params.DeviceID))
 
-	/* do offline container stat path, if tails do online */
-	// TODO: add the relative path
-	//fileInfo, err := splc.OfflineStatPath(params.DeviceID, params.AbsTargetPath)
+	// do offline container stat path, if fails do online
+	op := trace.NewOperation(context.Background(), fmt.Sprintf("StatPath(%s)", params.DeviceID))
+	device, err := findDevice(op, h, params.DeviceID)
+	if err == nil {
+		fileInfo, err := splc.OfflineStatPath(device, params.RelativeTargetPath)
+		if err != nil {
+			// TODO need to return error response
+			return nil
+		}
 
+		var targetLink string
+		if fileInfo.Mode() & os.ModeSymlink  != 0 {
+			targetLink, er := os.Readlink()
+		}
+
+		return storage.
+		NewStatPathOK().
+			WithMode(fileInfo.Mode()).
+			WithLinkTarget().
+			WithName().
+			WithSize()
+	}
 
 	// assume it's online container and obj id is container id first.
 	vc := epl.Containers.Container(params.DeviceID)
@@ -707,3 +726,31 @@ func createVsphereVolumeStore(op trace.Operation, dsurl *url.URL, name string, h
 	}
 	return vs, nil
 }
+
+func findDevice(op trace.Operation, h *StorageHandlersImpl, id string) (spl.Disk, error) {
+	// look up in volume store first
+	vol, err := h.volumeCache.VolumeGet(op, id)
+	if err != nil {
+		// look up in img store if not in volume store
+		host, err := sys.UUID()
+		if err != nil {
+			log.Errorf("Failed to determine host UUID")
+			return nil, err
+		}
+		// get reference to image store
+		store, err := util.ImageStoreNameToURL(host)
+		if err != nil {
+			return nil, err
+		}
+
+		img, err := h.imageCache.GetImage(op, store, id)
+		if err != nil {
+			return nil, err
+		}
+
+		return img.Disk, nil
+	} else {
+		return vol.Device, nil
+	}
+}
+

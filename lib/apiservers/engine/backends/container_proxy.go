@@ -727,16 +727,16 @@ func (c *ContainerProxy) ImportStream(ctx context.Context, deviceID, destination
 func (c *ContainerProxy) GiveStream(ctx context.Context, deviceID, destination string, filterSpec map[string]string) (io.Reader, error) {
 	defer trace.End(trace.Begin(deviceID))
 
-	vc := cache.ContainerCache().GetContainer(deviceID)
-	if vc == nil {
-		return nil, NotFoundError(deviceID)
-	}
-
-	exportArchiveParams := storage.
-	NewExportContainerArchiveParamsWithContext(ctx).
-		WithObjectID(deviceID).
-		WithTargetPath(path)
-	exportArchiveResp, err := c.client.Storage.ExportArchive(exportArchiveParams)
+	//vc := cache.ContainerCache().GetContainer(deviceID)
+	//if vc == nil {
+	//	return nil, NotFoundError(deviceID)
+	//}
+	//
+	//exportArchiveParams := storage.
+	//NewExportContainerArchiveParamsWithContext(ctx).
+	//	WithObjectID(deviceID).
+	//	WithTargetPath(path)
+	//exportArchiveResp, err := c.client.Storage.ExportArchive(exportArchiveParams)
 	// if err != nil {
 	// 	return nil, InternalServerError(err.Error())
 	// }
