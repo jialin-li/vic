@@ -281,6 +281,22 @@
 			"branch": "master"
 		},
 		{
+			"importpath": "github.com/djherbis/buffer",
+			"repository": "https://github.com/djherbis/buffer",
+			"vcs": "git",
+			"revision": "81a3204d823f2cb127fd516387fab63abe1017f3",
+			"branch": "master",
+			"notests": true
+		},
+		{
+			"importpath": "github.com/djherbis/nio",
+			"repository": "https://github.com/djherbis/nio",
+			"vcs": "git",
+			"revision": "824ca9017eeb2a422fdda7ae9dba05d3ab019dfa",
+			"branch": "master",
+			"notests": true
+		},
+		{
 			"importpath": "github.com/docker/distribution",
 			"repository": "https://github.com/docker/distribution",
 			"vcs": "git",
@@ -1036,7 +1052,7 @@
 			"importpath": "github.com/vmware/govmomi",
 			"repository": "https://github.com/vmware/govmomi",
 			"vcs": "git",
-			"revision": "7414891a39a766429d55ef16f503cfddacf0302f",
+			"revision": "af03c6dfde43f6f6d39a1363267d591cf76aab66",
 			"branch": "master",
 			"notests": true
 		},

@@ -33,10 +33,14 @@ package backends
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -76,6 +80,8 @@ import (
 	"github.com/vmware/vic/lib/metadata"
 	"github.com/vmware/vic/pkg/trace"
 	"github.com/vmware/vic/pkg/vsphere/sys"
+
+	"github.com/davecgh/go-spew/spew"
 )
 
 // VicContainerProxy interface
@@ -92,8 +98,13 @@ type VicContainerProxy interface {
 	UnbindInteraction(handle string, name string, id string) (string, error)
 
 	CommitContainerHandle(handle, containerID string, waitTime int32) error
+	AttachStreams(ctx context.Context, ac *AttachConfig, stdin io.ReadCloser, stdout, stderr io.Writer) error
 	StreamContainerLogs(name string, out io.Writer, started chan struct{}, showTimestamps bool, followLogs bool, since int64, tailLines int64) error
 	StreamContainerStats(ctx context.Context, config *convert.ContainerStatsConfig) error
+
+	ExportReader(ctx context.Context, deviceID, source string, filterSpec map[string]string) (io.Reader, error)
+	ImportWriter(ctx context.Context, deviceID, destination string, filterSpec map[string]string) (io.WriteCloser, error)
+	StatPath(ctx context.Context, name, path string) (*types.ContainerPathStat, error)
 
 	Stop(vc *viccontainer.VicContainer, name string, seconds *int, unbound bool) error
 	State(vc *viccontainer.VicContainer) (*types.ContainerState, error)
@@ -101,7 +112,6 @@ type VicContainerProxy interface {
 	Signal(vc *viccontainer.VicContainer, sig uint64) error
 	Resize(id string, height, width int32) error
 	Rename(vc *viccontainer.VicContainer, newName string) error
-	AttachStreams(ctx context.Context, ac *AttachConfig, stdin io.ReadCloser, stdout, stderr io.Writer) error
 
 	Handle(id, name string) (string, error)
 	Client() *client.PortLayer
@@ -145,6 +155,7 @@ const (
 	swaggerSubstringEOF                 = "EOF"
 	forceLogType                        = "json-file" //Use in inspect to allow docker logs to work
 	ShortIDLen                          = 12
+	archiveStreamBufSize                = 64 * 1024
 
 	DriverArgFlagKey      = "flags"
 	DriverArgContainerKey = "container"
@@ -671,6 +682,169 @@ func (c *ContainerProxy) StreamContainerStats(ctx context.Context, config *conve
 		}
 	}
 	return nil
+}
+
+// StatPath requests the portlayer to stat the filesystem resource at the
+// specified path in the container vc.
+func (c *ContainerProxy) StatPath(ctx context.Context, name, path string) (*types.ContainerPathStat, error) {
+	defer trace.End(trace.Begin(name))
+
+	vc := cache.ContainerCache().GetContainer(name)
+	if vc == nil {
+		return nil, NotFoundError(name)
+	}
+
+	statPathParams := storage.
+		NewStatPathParamsWithContext(ctx).
+		WithObjectID(vc.ContainerID).
+		WithTargetPath(path)
+	statPathOk, err := c.client.Storage.StatPath(statPathParams)
+	if err != nil {
+		log.Debugln(spew.Sdump(err))
+		log.Debugln(spew.Sdump(err.Error()))
+		return nil, InternalServerError(err.Error())
+	}
+
+	return &types.ContainerPathStat{
+		Name:       statPathOk.Name,
+		Mode:       os.FileMode(statPathOk.Mode),
+		Size:       statPathOk.Size,
+		LinkTarget: statPathOk.LinkTarget,
+	}, nil
+}
+
+// ExportReader streams a tar archive from the portlayer.  Once the stream is complete,
+// an io.Reader is returned and the caller can use that reader to parse the data.
+func (c *ContainerProxy) ExportReader(ctx context.Context, deviceID, source string, filterSpec map[string]string) (io.Reader, error) {
+	defer trace.End(trace.Begin(deviceID))
+
+	plClient, transport := c.createNewAttachClientWithTimeouts(attachConnectTimeout, 0, attachAttemptTimeout)
+	defer transport.Close()
+
+	var err error
+
+	pipeReader, pipeWriter := io.Pipe()
+
+	go func() {
+		params := storage.NewExportArchiveParamsWithContext(ctx).
+			WithDeviceID(deviceID).
+			WithSource(source)
+		log.Infof(" params = %#v", params)
+		log.Infof(" deviceID = %s", deviceID)
+
+		if len(filterSpec) > 0 {
+			encodedFilter := ""
+			if valueBytes, merr := json.Marshal(filterSpec); merr == nil {
+				encodedFilter = base64.StdEncoding.EncodeToString(valueBytes)
+				params = params.WithFilterSpec(&encodedFilter)
+				log.Infof(" encodedFilter = %s", encodedFilter)
+			}
+		}
+		_, err = plClient.Storage.ExportArchive(params, pipeWriter)
+		if err != nil {
+			switch err := err.(type) {
+			case *storage.ImportArchiveInternalServerError:
+				log.Errorf("Server error from the storage port layer during ExportReader: %s", err.Error())
+			default:
+				//Check for EOF.  Since the connection, transport, and data handling are
+				//encapsulated inside of Swagger, we can only detect EOF by checking the
+				//error string
+				if strings.Contains(err.Error(), swaggerSubstringEOF) {
+					log.Infof("swagger error %s", err.Error())
+				}
+			}
+		}
+	}()
+
+	log.Infof("Finished, closing up")
+
+	return pipeReader, nil
+}
+
+// ImportWriter initializes a write stream for a path.  This is usually called
+// for gettine a writer during docker cp TO container.
+func (c *ContainerProxy) ImportWriter(ctx context.Context, deviceID, destination string, filterSpec map[string]string) (io.WriteCloser, error) {
+	defer trace.End(trace.Begin(deviceID))
+
+	plClient, transport := c.createNewAttachClientWithTimeouts(attachConnectTimeout, 0, attachAttemptTimeout)
+	defer transport.Close()
+
+	var err error
+
+	pipeReader, pipeWriter := io.Pipe()
+
+	// Write the init string to "wakeup" swagger on the portlayer side.  Must do
+	// it in a goroutine because pipeWriter.Write() will block till data is read
+	// off.
+	go func() {
+		log.Debugf("writing primer bytes for ImportStream")
+		pipeWriter.Write([]byte(attachStdinInitString))
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		// make sure we get out of io.Copy if context is canceled
+		select {
+		case <-ctx.Done():
+			// This will cause the transport to the API client to be shut down, so all output
+			// streams will get closed as well.
+			// See the closer in container_routes.go:postContainersAttach
+
+			// We're closing this here to disrupt the io.Copy below
+			// TODO: seems like we should be providing an io.Copy impl with ctx argument that honors
+			// cancelation with the amount of code dedicated to working around it
+
+			// TODO: I think this still leaves a race between closing of the API client transport and
+			// copying of the output streams, it's just likely the error will be dropped as the transport is
+			// closed when it occurs.
+			// We should move away from needing to close transports to interrupt reads.
+			pipeWriter.Close()
+		case <-done:
+		}
+	}()
+
+	go func() {
+		defer close(done)
+
+		// Write some init bytes into the pipe to force Swagger to make the initial
+		// call to the portlayer, prior to any user input in whatever attach client
+		// he/she is using.
+
+		log.Debugf("Calling ImportArchive")
+		// encodedFilter and destination are not required (from swagge spec) because
+		// they are allowed to be empty.
+		params := storage.NewImportArchiveParamsWithContext(ctx).
+			WithDeviceID(deviceID).
+			WithDestination(&destination).
+			WithArchive(ioutil.NopCloser(pipeReader))
+
+		if len(filterSpec) > 0 {
+			encodedFilter := ""
+			if valueBytes, merr := json.Marshal(filterSpec); merr == nil {
+				encodedFilter = base64.StdEncoding.EncodeToString(valueBytes)
+				params = params.WithFilterSpec(&encodedFilter)
+				log.Infof(" encodedFilter = %s", encodedFilter)
+			}
+		}
+		_, err = plClient.Storage.ImportArchive(params)
+		if err != nil {
+			switch err := err.(type) {
+			case *storage.ImportArchiveInternalServerError:
+				log.Errorf("Server error from the storage port layer: %s", err.Error())
+				return
+			default:
+				//Check for EOF.  Since the connection, transport, and data handling are
+				//encapsulated inside of Swagger, we can only detect EOF by checking the
+				//error string
+				if strings.Contains(err.Error(), swaggerSubstringEOF) {
+					log.Errorf(err.Error())
+					return
+				}
+			}
+		}
+	}()
+
+	return pipeWriter, nil
 }
 
 // Stop will stop (shutdown) a VIC container.
@@ -1503,6 +1677,12 @@ func mountsFromContainerInfo(vc *viccontainer.VicContainer, info *models.Contain
 	// Iterate through info.VolumeConfig and build the hostconfig.bind config.volumes
 
 	// Derive the mount data
+	return mountsFromContainer(vc)
+}
+
+// mountsFromContainer derives []types.MountPoint (used in inspect) from the cached container
+// data.
+func mountsFromContainer(vc *viccontainer.VicContainer) []types.MountPoint {
 	var mounts []types.MountPoint
 
 	rawAnonVolumes := make([]string, 0, len(vc.Config.Volumes))
@@ -1518,7 +1698,7 @@ func mountsFromContainerInfo(vc *viccontainer.VicContainer, info *models.Contain
 	for _, vol := range volList {
 		mountConfig := types.MountPoint{
 			Type:        mount.TypeVolume,
-			Driver:      DefaultVolumeDriver,
+			Driver:      "vsphere",
 			Name:        vol.ID,
 			Source:      vol.ID,
 			Destination: vol.Dest,
@@ -1955,3 +2135,19 @@ func copyEscapable(dst io.Writer, src io.ReadCloser, keys []byte) (written int64
 }
 
 // End
+
+//------------------------------------
+// Stream Archive Utility Functions
+//------------------------------------
+
+// PackCopyArchive packs a filespec map and the contents of an archive tar
+// into a new tar and returns a reader for it.
+func packCopyArchive(pathspec map[string]string, archiveReader io.Reader) (io.ReadCloser, error) {
+	return nil, nil
+}
+
+// unpackCopyArchive unpacks a copy archive into a filespec map and a reader
+// that the caller can use to read the actual tar archive.
+func unpackCopyArchive(packedArchiveReader io.Reader) (io.Reader, error) {
+	return nil, nil
+}

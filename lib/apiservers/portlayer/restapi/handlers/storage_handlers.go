@@ -15,21 +15,31 @@
 package handlers
 
 import (
+	"bufio"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/go-openapi/runtime/middleware"
 
+	"bytes"
+
+	"github.com/davecgh/go-spew/spew"
+	"github.com/vmware/govmomi/vim25/types"
 	"github.com/vmware/vic/lib/apiservers/portlayer/models"
 	"github.com/vmware/vic/lib/apiservers/portlayer/restapi/operations"
 	"github.com/vmware/vic/lib/apiservers/portlayer/restapi/operations/storage"
 	epl "github.com/vmware/vic/lib/portlayer/exec"
 	spl "github.com/vmware/vic/lib/portlayer/storage"
+	splc "github.com/vmware/vic/lib/portlayer/storage/compute"
 	"github.com/vmware/vic/lib/portlayer/storage/nfs"
 	"github.com/vmware/vic/lib/portlayer/storage/vsphere"
 	"github.com/vmware/vic/lib/portlayer/util"
@@ -94,6 +104,10 @@ func (h *StorageHandlersImpl) Configure(api *operations.PortLayerAPI, handlerCtx
 	api.StorageVolumeJoinHandler = storage.VolumeJoinHandlerFunc(h.VolumeJoin)
 	api.StorageListVolumesHandler = storage.ListVolumesHandlerFunc(h.VolumesList)
 	api.StorageGetVolumeHandler = storage.GetVolumeHandlerFunc(h.GetVolume)
+
+	api.StorageExportArchiveHandler = storage.ExportArchiveHandlerFunc(h.ExportArchive)
+	api.StorageImportArchiveHandler = storage.ImportArchiveHandlerFunc(h.ImportArchive)
+	api.StorageStatPathHandler = storage.StatPathHandlerFunc(h.StatPath)
 }
 
 func (h *StorageHandlersImpl) configureVolumeStores(op trace.Operation, handlerCtx *HandlerContext) {
@@ -505,6 +519,112 @@ func (h *StorageHandlersImpl) VolumeJoin(params storage.VolumeJoinParams) middle
 
 	op.Infof("volume %s has been joined to a container", volume.ID)
 	return storage.NewVolumeJoinOK().WithPayload(actualHandle.String())
+}
+
+func (h *StorageHandlersImpl) StatPath(params storage.StatPathParams) middleware.Responder {
+	defer trace.End(trace.Begin(params.ObjectID))
+
+	vc := epl.Containers.Container(params.ObjectID)
+	if vc == nil {
+		log.Debugln("%#v", spew.Sdump(epl.Containers))
+		return storage.NewStatPathNotFound()
+	}
+
+	file, err := splc.StatPath(context.Background(), vc, params.TargetPath)
+	if err != nil {
+		return storage.NewStatPathInternalServerError()
+	}
+
+	var mode uint32
+	switch types.GuestFileType(file.Type) {
+	case types.GuestFileTypeDirectory:
+		mode = uint32(os.ModeDir)
+	case types.GuestFileTypeSymlink:
+		mode = uint32(os.ModeSymlink)
+	}
+
+	return storage.
+		NewStatPathOK().
+		WithMode(mode).
+		WithLinkTarget(file.Attributes.GetGuestFileAttributes().SymlinkTarget).
+		WithName(filepath.Base(file.Path)).
+		WithSize(file.Size)
+}
+
+// ExportArchive takes an input tar archive and unpacks to destination
+func (h *StorageHandlersImpl) ExportArchive(params storage.ExportArchiveParams) middleware.Responder {
+	defer trace.End(trace.Begin(""))
+
+	// | ------------- |
+	// | START ONLINE  |
+	// | ------------- |
+	vc := epl.Containers.Container(params.ObjectID)
+	if vc == nil {
+		log.Errorf("Container %s not found", params.ObjectID)
+		return storage.NewExportArchiveNotFound()
+	}
+	reader, err := splc.FileTransferFromGuest(context.Background(), vc, params.TargetPath)
+	if err != nil {
+		log.Errorf("FileTransferFromGuest error: %#v", err)
+		return storage.NewExportArchiveInternalServerError()
+	}
+
+	detachableOut := NewFlushingReader(reader)
+	log.Debugf("Returning %#v --- %#v", reader, detachableOut)
+	return NewStreamOutputHandler("exportArchive").WithPayload(detachableOut, params.ObjectID, nil)
+
+	// | ------------- |
+	// | END ONLINE    |
+	// | ------------- |
+
+	// // Return the data back to the caller
+	// reader := bytes.NewReader([]byte("This is a test"))
+	// detachableOut := NewFlushingReader(reader)
+
+	// return NewStreamOutputHandler("ExportArchive").WithPayload(detachableOut, *params.ID, nil)
+}
+
+// ImportArchive creates a tar archive and returns to caller
+func (h *StorageHandlersImpl) ImportArchive(params storage.ImportArchiveParams) middleware.Responder {
+	defer trace.End(trace.Begin(""))
+
+	var filterSpec map[string]string
+	if params.FilterSpec != nil && len(*params.FilterSpec) > 0 {
+		if decodedSpec, err := base64.StdEncoding.DecodeString(*params.FilterSpec); err == nil {
+			if len(decodedSpec) > 0 {
+				log.Info("decoded spec = %s", string(decodedSpec))
+				if err = json.Unmarshal(decodedSpec, filterSpec); err != nil {
+					log.Errorf("Unable to unmarshal decoded spec: %s", err)
+					return storage.NewImportArchiveInternalServerError()
+				}
+			} else {
+				log.Info("** filterSpec is empty")
+				filterSpec = make(map[string]string)
+			}
+		}
+	} else {
+		log.Info("** filterSpec is empty")
+		filterSpec = make(map[string]string)
+	}
+
+	log.Infof("Creating reader for %#v", params)
+	detachableIn := NewFlushingReader(params.Archive)
+
+	// This is where you need to take the reader and do something with the tar data
+	var buf bytes.Buffer
+	writer := bufio.NewWriter(&buf)
+	_, err := io.Copy(writer, detachableIn)
+	if err != nil {
+		log.Errorf("Copy tar stream returned error - %s", err.Error())
+		params.Archive.Close()
+		return storage.NewImportArchiveInternalServerError()
+	}
+
+	params.Archive.Close()
+
+	log.Infof(buf.String())
+
+	return storage.NewImportArchiveOK()
 }
 
 //utility functions
