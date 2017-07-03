@@ -37,6 +37,7 @@ import (
 	"github.com/vmware/vic/pkg/vsphere/session"
 	"github.com/vmware/vic/lib/portlayer/storage/compute"
 	"github.com/vmware/vic/pkg/vsphere/sys"
+
 )
 
 // All paths on the datastore for images are relative to <datastore>/VIC/
@@ -68,6 +69,7 @@ const (
 	defaultDiskSizeInKB = 8 * 1024 * 1024
 	metaDataDir         = "imageMetadata"
 	manifest            = "manifest"
+	mountPath	    = "/mnt/tmp"
 )
 
 type ImageStore struct {
@@ -735,17 +737,7 @@ func createBaseStructure(op trace.Operation, vmdisk *disk.VirtualDisk) (err erro
 	return nil
 }
 
-//
 func (v *ImageStore) StatPath(op trace.Operation, deviceId string, target string) (*compute.FileStat, error) {
-	/*
-
-	get image store, get image, if it exists, do create and attach on its disk manager
-	the returned virtual disk if error is not nil, has functions to see mount path,
-	so I can join the path string and use os.filestat on it.
-
-	*/
-
-	// verify that disk
 	host, err := sys.UUID()
 	if err != nil {
 		op.Debugf("Failed to determine host UUID")
@@ -769,7 +761,7 @@ func (v *ImageStore) StatPath(op trace.Operation, deviceId string, target string
 	//	op.Debugf("Device is not an image")
 	//	return nil, err
 	//}
-\
+
 	diskDsURI := v.imageDiskDSPath(host, deviceId)
 	config := disk.NewPersistentDisk(diskDsURI)
 	dsk, err := v.dm.CreateAndAttach(op, config)
@@ -778,11 +770,18 @@ func (v *ImageStore) StatPath(op trace.Operation, deviceId string, target string
 		return nil, err
 	}
 
-	dsk.Mount("/tmpfs/", nil)
+	err = dsk.Mount(mountPath, nil)
+	if err != nil {
+		op.Debugf("Failed to mount the disk")
+		return nil, err
+	}
 
-	// need to find the config
+	defer func() {
+		err = dsk.Unmount()
+		if err != nil {
+			op.Errorf("Failed to unmount device: %s", err)
+		}
+	}()
 
-	//op trace.Operation, config *VirtualDiskConfig
-
-	return nil, nil
+	return compute.InspectFileStat(path.Join(mountPath, target))
 }

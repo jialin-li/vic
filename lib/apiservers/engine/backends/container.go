@@ -1119,12 +1119,12 @@ func interBridgeTraffic(op portmap.Operation, hostPort, proto, containerAddr, co
 		// chain rather than appended to supersede bridge-to-bridge
 		// traffic blocking
 		baseArgs := []string{"-t", string(iptables.Filter),
-			"-i", bridgeIfaceName,
-			"-o", bridgeIfaceName,
-			"-p", proto,
-			"-d", containerAddr,
-			"--dport", containerPort,
-			"-j", "ACCEPT",
+				     "-i", bridgeIfaceName,
+				     "-o", bridgeIfaceName,
+				     "-p", proto,
+				     "-d", containerAddr,
+				     "--dport", containerPort,
+				     "-j", "ACCEPT",
 		}
 
 		args := append([]string{string(iptables.Insert), "VIC", "1"}, baseArgs...)
@@ -1362,8 +1362,7 @@ func (c *Container) ContainerLogs(ctx context.Context, name string, config *back
 
 // ContainerStats writes information about the container to the stream
 // given in the config object.
-func (c *Container) ContainerStats(ctx context.Context, name string, config *
-) error {
+func (c *Container) ContainerStats(ctx context.Context, name string, config *backend.ContainerStatsConfig) error {
 	defer trace.End(trace.Begin(name))
 
 	// Look up the container name in the metadata cache to get long ID

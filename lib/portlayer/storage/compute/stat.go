@@ -28,6 +28,9 @@ import (
 	"github.com/vmware/govmomi/vim25/types"
 	"github.com/vmware/vic/lib/portlayer/exec"
 	"github.com/vmware/vic/pkg/trace"
+	"os"
+	"path"
+	"github.com/derekparker/delve/pkg/dwarf/op"
 )
 
 // TODO: still need to figure this part out
@@ -39,12 +42,12 @@ type FileStat struct {
 }
 
 // interface for offline container statpath
-type StatPath interface {
+type ContainerStatPath interface {
 	// deviceId, filepath
 	StatPath(op trace.Operation, deviceId string, target string) (*FileStat, error)
 }
 
-func OnlineStatPath(ctx context.Context, vc *exec.Container, path string) (*types.GuestFileInfo, error) {
+func StatPath(ctx context.Context, vc *exec.Container, path string) (*types.GuestFileInfo, error) {
 	defer trace.End(trace.Begin(vc.Config.Name))
 
 	// below implementation of searching one directory up does not work at root, but we can assume root is a directory
@@ -85,11 +88,21 @@ func OnlineStatPath(ctx context.Context, vc *exec.Container, path string) (*type
 	return nil, fmt.Errorf("file %s not found on container %s", path, vc.ExecConfig.ID)
 }
 
-//func OfflineStatPath(device storage.Disk, path string) (*fileStat, error) {
-//	// if mode is a symbolic link, do a Readlink returns the destination of the named symbolic link
-//	// this is the device path
-//	device.DiskPath().String()
-//
-//
-//	return nil, nil
-//}
+// InspectFileStat runs lstat on the target
+func InspectFileStat (target string) (*FileStat, error) {
+	fileInfo, err := os.Lstat(target)
+	if err != nil {
+		return nil, err
+	}
+
+	var linkTarget string
+	// check for symlink
+	if fileInfo.Mode() & os.ModeSymlink != 0 {
+		linkTarget, err = os.Readlink(target)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &FileStat{linkTarget, uint32(fileInfo.Mode()), fileInfo.Name(), fileInfo.Size()}, nil
+}

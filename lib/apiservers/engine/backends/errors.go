@@ -94,6 +94,10 @@ func SwarmNotSupportedError() error {
 	return derr.NewErrorWithStatusCode(fmt.Errorf("%s does not yet support Docker Swarm", ProductName()), http.StatusNotFound)
 }
 
+func StreamFormatNotRecognized() error {
+	return derr.NewRequestConflictError(fmt.Errorf("Stream format not recognized"))
+}
+
 // Error type check
 
 func IsNotFoundError(err error) bool {

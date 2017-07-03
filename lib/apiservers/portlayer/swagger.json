@@ -187,33 +187,46 @@
 					"application/json"
 				],
 				"produces": [
-					"application/x-gzip"
+					"application/x-tar"
 				],
 				"operationId": "ExportArchive",
 				"parameters": [
 					{
-						"name":"objectID",
-						"in":"query",
-						"required": true,
-						"type" : "string",
+						"name": "ID",
+						"in": "query",
+						"type": "string",
 						"x-nullable": false
 					},
 					{
-						"name":"targetPath",
-						"in":"query",
+						"name": "deviceID",
+						"in": "query",
 						"required": true,
 						"type": "string",
 						"x-nullable": false
+					},
+					{
+						"name": "source",
+						"in": "query",
+						"required": true,
+						"type": "string",
+						"x-nullable": false
+					},
+					{
+						"name": "filterSpec",
+						"in": "query",
+						"required": false,
+						"type": "string",
+						"x-nullable": true
 					}
 				],
 				"responses": {
 					"200": {
 						"description": "OK",
 						"schema": {
-							"format":"binary"
+							"format": "binary"
 						}
 					},
-					"404" : {
+					"404": {
 						"description": "Supplied target not found",
 						"schema": {
 							"$ref": "#/definitions/Error"
@@ -248,26 +261,39 @@
 				"operationId": "ImportArchive",
 				"parameters": [
 					{
-						"name":"objectID",
-						"in":"query",
-						"required": true,
-						"type" : "string",
+						"name": "ID",
+						"in": "query",
+						"type": "string",
 						"x-nullable": false
 					},
 					{
-						"name":"destinationPath",
-						"in":"query",
+						"name": "deviceID",
+						"in": "query",
 						"required": true,
 						"type": "string",
 						"x-nullable": false
+					},
+					{
+						"name": "destination",
+						"in": "query",
+						"required": false,
+						"type": "string",
+						"x-nullable": false
+					},
+					{
+						"name": "filterSpec",
+						"in": "query",
+						"required": false,
+						"type": "string",
+						"x-nullable": true
 					},
 					{
 						"name": "Archive",
 						"required": true,
 						"in": "body",
 						"schema": {
-							"type":"string",
-							"format":"binary"
+							"type": "string",
+							"format": "binary"
 						}
 					}
 				],
@@ -275,7 +301,7 @@
 					"200": {
 						"description": "OK"
 					},
-					"404" : {
+					"404": {
 						"description": "Supplied target not found",
 						"schema": {
 							"$ref": "#/definitions/Error"
@@ -312,15 +338,21 @@
 				],
 				"parameters": [
 					{
-						"name":"deviceID",
-						"in":"query",
-						"required": true,
-						"type" : "string",
+						"name": "ID",
+						"in": "query",
+						"type": "string",
 						"x-nullable": false
 					},
 					{
-						"name":"targetPath",
-						"in":"query",
+						"name": "objectID",
+						"in": "query",
+						"required": true,
+						"type": "string",
+						"x-nullable": false
+					},
+					{
+						"name": "targetPath",
+						"in": "query",
 						"required": true,
 						"type": "string",
 						"x-nullable": false
@@ -348,7 +380,7 @@
 							}
 						}
 					},
-					"404" : {
+					"404": {
 						"description": "supplied target not found"
 					},
 					"500": {

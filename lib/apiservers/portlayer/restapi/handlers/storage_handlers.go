@@ -516,7 +516,6 @@ func (h *StorageHandlersImpl) VolumeJoin(params storage.VolumeJoinParams) middle
 }
 
 func (h *StorageHandlersImpl) StatPath(params storage.StatPathParams) middleware.Responder {
-	defer trace.End(trace.Begin(params.DeviceID))
 
 	// do offline container stat path, if fails do online
 	//op := trace.NewOperation(context.Background(), fmt.Sprintf("StatPath(%s)", params.DeviceID))
@@ -536,14 +535,15 @@ func (h *StorageHandlersImpl) StatPath(params storage.StatPathParams) middleware
 	//}
 
 	// assume it's online container and obj id is container id first.
-	vc := epl.Containers.Container(params.DeviceID)
-	if vc == nil {
+	defer trace.End(trace.Begin(params.ObjectID))
 
+	vc := epl.Containers.Container(params.ObjectID)
+	if vc == nil {
 		log.Debugln("%#v", spew.Sdump(epl.Containers))
 		return storage.NewStatPathNotFound()
 	}
 
-	file, err := splc.OnlineStatPath(context.Background(), vc, params.TargetPath)
+	file, err := splc.StatPath(context.Background(), vc, params.TargetPath)
 	if err != nil {
 		return storage.NewStatPathInternalServerError()
 	}
@@ -564,18 +564,82 @@ func (h *StorageHandlersImpl) StatPath(params storage.StatPathParams) middleware
 		WithSize(file.Size)
 }
 
-// ExportArchive exports a tar archive from the container at target path.
+// ExportArchive takes an input tar archive and unpacks to destination
 func (h *StorageHandlersImpl) ExportArchive(params storage.ExportArchiveParams) middleware.Responder {
-	defer trace.End(trace.Begin(params.ObjectID))
+	defer trace.End(trace.Begin(""))
 
-	return storage.NewExportArchiveOK()
+	// | ------------ |
+	// | START ONLINE |
+	// | ------------ |
+	vc := epl.Containers.Container(params.DeviceID)
+	if vc == nil {
+		log.Errorf("Container %s not found", params.DeviceID)
+		return storage.NewExportArchiveNotFound()
+	}
+	reader, err := splc.FileTransferFromGuest(context.Background(), vc, params.Source)
+	if err != nil {
+		log.Errorf("FileTransferFromGuest error: %#v", err)
+		return storage.NewExportArchiveInternalServerError()
+	}
+
+	detachableOut := NewFlushingReader(reader)
+	log.Debugf("Returning %#v --- %#v", reader, detachableOut)
+	return NewStreamOutputHandler("exportArchive").WithPayload(detachableOut, params.DeviceID, nil)
+
+	// | ---------- |
+	// | END ONLINE |
+	// | ---------- |
+	// // Return the data back to the caller
+	// reader := bytes.NewReader([]byte("This is a test"))
+	// detachableOut := NewFlushingReader(reader)
+
+	// return NewStreamOutputHandler("ExportArchive").WithPayload(detachableOut, *params.ID, nil)
 }
 
-// ImportArchive imports a tar stream to the container at the target path
+// ImportArchive creates a tar archive and returns to caller
 func (h *StorageHandlersImpl) ImportArchive(params storage.ImportArchiveParams) middleware.Responder {
 	defer trace.End(trace.Begin(""))
 
-	return storage.NewImportArchiveOK()
+	// // | ------------ |
+	// // | START ONLINE |
+	// // | ------------ |
+	// vc := epl.Containers.Container(params.ObjectID)
+	// if vc == nil {
+	// 	log.Errorf("Container %s not found", params.ObjectID)
+	// 	return storage.NewExportArchiveNotFound()
+	// }
+
+	// detachableIn := NewFlushingReader(params.Archive)
+	// err := splc.FileTransferToGuest(context.Background(), vc, params.TargetPath, detachableIn)
+	// if err != nil {
+	// 	log.Errorf("FileTransferFromGuest error: %#v", err)
+	// 	return storage.NewExportArchiveInternalServerError()
+	// }
+
+	// detachableOut := NewFlushingReader(reader)
+	// log.Debugf("Returning %#v --- %#v", reader, detachableOut)
+	// return NewStreamOutputHandler("exportArchive").WithPayload(detachableOut, params.ObjectID, nil)
+
+	// // | ---------- |
+	// // | END ONLINE |
+	// // | ---------- |
+	// // ------------------------------------------------------------------------------------------------
+
+	// // This is where you need to take the reader and do something with the tar data
+	// var buf bytes.Buffer
+	// writer := bufio.NewWriter(&buf)
+	// _, err := io.Copy(writer, detachableIn)
+	// if err != nil {
+	// 	log.Errorf("Copy tar stream returned error - %s", err.Error())
+	// 	params.Archive.Close()
+	// 	return storage.NewImportArchiveInternalServerError()
+	// }
+
+	// params.Archive.Close()
+
+	// log.Infof(buf.String())
+
+	return storage.NewImportArchiveInternalServerError()
 }
 
 //utility functions
