@@ -25,6 +25,7 @@ import (
 	"github.com/vmware/vic/lib/portlayer/exec"
 	"github.com/vmware/vic/lib/portlayer/util"
 	"github.com/vmware/vic/pkg/trace"
+	//"github.com/vmware/vic/lib/portlayer/storage/compute"
 )
 
 // VolumeLookupCache caches Volume references to volumes in the system.

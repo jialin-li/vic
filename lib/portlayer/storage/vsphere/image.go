@@ -35,6 +35,8 @@ import (
 	"github.com/vmware/vic/pkg/vsphere/datastore"
 	"github.com/vmware/vic/pkg/vsphere/disk"
 	"github.com/vmware/vic/pkg/vsphere/session"
+	"github.com/vmware/vic/lib/portlayer/storage/compute"
+	"github.com/vmware/vic/pkg/vsphere/sys"
 )
 
 // All paths on the datastore for images are relative to <datastore>/VIC/
@@ -731,4 +733,56 @@ func createBaseStructure(op trace.Operation, vmdisk *disk.VirtualDisk) (err erro
 	}
 
 	return nil
+}
+
+//
+func (v *ImageStore) StatPath(op trace.Operation, deviceId string, target string) (*compute.FileStat, error) {
+	/*
+
+	get image store, get image, if it exists, do create and attach on its disk manager
+	the returned virtual disk if error is not nil, has functions to see mount path,
+	so I can join the path string and use os.filestat on it.
+
+	*/
+
+	// verify that disk
+	host, err := sys.UUID()
+	if err != nil {
+		op.Debugf("Failed to determine host UUID")
+		return nil, err
+	}
+
+	if err = v.verifyImage(op, host, deviceId); err != nil {
+		op.Debugf("Device is not an image")
+		return nil, err
+	}
+
+	// TODO: not sure if these checks are needed
+	//store, err := v.GetImageStore(op, host)
+	//if err != nil {
+	//	op.Debugf("Failed to get image store")
+	//	return nil, err
+	//}
+	//
+	//_, err = v.GetImage(op, store, deviceId)
+	//if err != nil {
+	//	op.Debugf("Device is not an image")
+	//	return nil, err
+	//}
+\
+	diskDsURI := v.imageDiskDSPath(host, deviceId)
+	config := disk.NewPersistentDisk(diskDsURI)
+	dsk, err := v.dm.CreateAndAttach(op, config)
+	if err != nil {
+		op.Debugf("Failed to attach disk for the image")
+		return nil, err
+	}
+
+	dsk.Mount("/tmpfs/", nil)
+
+	// need to find the config
+
+	//op trace.Operation, config *VirtualDiskConfig
+
+	return nil, nil
 }

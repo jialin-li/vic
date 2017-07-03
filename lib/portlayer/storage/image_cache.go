@@ -25,6 +25,7 @@ import (
 	"github.com/vmware/vic/lib/portlayer/util"
 	"github.com/vmware/vic/pkg/index"
 	"github.com/vmware/vic/pkg/trace"
+	"github.com/vmware/vic/lib/portlayer/storage/compute"
 )
 
 var Scratch = Image{
@@ -441,4 +442,12 @@ func (c *NameLookupCache) DeleteBranch(op trace.Operation, image *Image, keepNod
 	}
 
 	return deletedImages, nil
+}
+
+// ListImageStores returns a list of strings representing all existing image stores
+func (c *NameLookupCache) StatPath(op trace.Operation, deviceId string, target string) (*compute.FileStat, error) {
+	c.storeCacheLock.Lock()
+	defer c.storeCacheLock.Unlock()
+
+	return c.DataStore.StatPath(op, deviceId, target)
 }

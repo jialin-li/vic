@@ -1362,7 +1362,8 @@ func (c *Container) ContainerLogs(ctx context.Context, name string, config *back
 
 // ContainerStats writes information about the container to the stream
 // given in the config object.
-func (c *Container) ContainerStats(ctx context.Context, name string, config *backend.ContainerStatsConfig) error {
+func (c *Container) ContainerStats(ctx context.Context, name string, config *
+) error {
 	defer trace.End(trace.Begin(name))
 
 	// Look up the container name in the metadata cache to get long ID

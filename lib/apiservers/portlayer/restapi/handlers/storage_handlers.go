@@ -39,7 +39,6 @@ import (
 	"github.com/vmware/vic/lib/portlayer/util"
 	"github.com/vmware/vic/pkg/trace"
 	"github.com/vmware/vic/pkg/vsphere/datastore"
-	"github.com/vmware/vic/pkg/vsphere/sys"
 )
 
 // StorageHandlersImpl is the receiver for all of the storage handler methods
@@ -520,27 +519,21 @@ func (h *StorageHandlersImpl) StatPath(params storage.StatPathParams) middleware
 	defer trace.End(trace.Begin(params.DeviceID))
 
 	// do offline container stat path, if fails do online
-	op := trace.NewOperation(context.Background(), fmt.Sprintf("StatPath(%s)", params.DeviceID))
-	device, err := findDevice(op, h, params.DeviceID)
-	if err == nil {
-		fileInfo, err := splc.OfflineStatPath(device, params.RelativeTargetPath)
-		if err != nil {
-			// TODO need to return error response
-			return nil
-		}
-
-		var targetLink string
-		if fileInfo.Mode() & os.ModeSymlink  != 0 {
-			targetLink, er := os.Readlink()
-		}
-
-		return storage.
-		NewStatPathOK().
-			WithMode(fileInfo.Mode()).
-			WithLinkTarget().
-			WithName().
-			WithSize()
-	}
+	//op := trace.NewOperation(context.Background(), fmt.Sprintf("StatPath(%s)", params.DeviceID))
+	//if err == nil {
+	//	fileStat, err := splc.OfflineStatPath(device, params.TargetPath)
+	//	if err != nil {
+	//		// TODO need to edit swagger to return error response
+	//		return nil
+	//	}
+	//
+	//	return storage.
+	//	NewStatPathOK().
+	//		WithMode(fileStat.Mode).
+	//		WithLinkTarget(fileStat.LinkTarget).
+	//		WithName(fileStat.Name).
+	//		WithSize(fileStat.Size)
+	//}
 
 	// assume it's online container and obj id is container id first.
 	vc := epl.Containers.Container(params.DeviceID)
@@ -550,7 +543,7 @@ func (h *StorageHandlersImpl) StatPath(params storage.StatPathParams) middleware
 		return storage.NewStatPathNotFound()
 	}
 
-	file, err := splc.OnlineStatPath(context.Background(), vc, params.AbsTargetPath)
+	file, err := splc.OnlineStatPath(context.Background(), vc, params.TargetPath)
 	if err != nil {
 		return storage.NewStatPathInternalServerError()
 	}
@@ -727,30 +720,30 @@ func createVsphereVolumeStore(op trace.Operation, dsurl *url.URL, name string, h
 	return vs, nil
 }
 
-func findDevice(op trace.Operation, h *StorageHandlersImpl, id string) (spl.Disk, error) {
-	// look up in volume store first
-	vol, err := h.volumeCache.VolumeGet(op, id)
-	if err != nil {
-		// look up in img store if not in volume store
-		host, err := sys.UUID()
-		if err != nil {
-			log.Errorf("Failed to determine host UUID")
-			return nil, err
-		}
-		// get reference to image store
-		store, err := util.ImageStoreNameToURL(host)
-		if err != nil {
-			return nil, err
-		}
-
-		img, err := h.imageCache.GetImage(op, store, id)
-		if err != nil {
-			return nil, err
-		}
-
-		return img.Disk, nil
-	} else {
-		return vol.Device, nil
-	}
-}
+//func findDevice(op trace.Operation, h *StorageHandlersImpl, id string) (spl.Disk, error) {
+//	// look up in volume store first
+//	vol, err := h.volumeCache.VolumeGet(op, id)
+//	if err != nil {
+//		// look up in img store if not in volume store
+//		host, err := sys.UUID()
+//		if err != nil {
+//			log.Errorf("Failed to determine host UUID")
+//			return nil, err
+//		}
+//		// get reference to image store
+//		store, err := util.ImageStoreNameToURL(host)
+//		if err != nil {
+//			return nil, err
+//		}
+//
+//		img, err := h.imageCache.GetImage(op, store, id)
+//		if err != nil {
+//			return nil, err
+//		}
+//
+//		return img.Disk, nil
+//	} else {
+//		return vol.Device, nil
+//	}
+//}
 

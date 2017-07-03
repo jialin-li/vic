@@ -19,7 +19,6 @@ package compute
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -29,15 +28,20 @@ import (
 	"github.com/vmware/govmomi/vim25/types"
 	"github.com/vmware/vic/lib/portlayer/exec"
 	"github.com/vmware/vic/pkg/trace"
-	"github.com/vmware/vic/lib/portlayer/storage"
 )
 
 // TODO: still need to figure this part out
-type fileStat struct {
+type FileStat struct {
 	LinkTarget string
 	Mode       uint32
 	Name       string
 	Size       int64
+}
+
+// interface for offline container statpath
+type StatPath interface {
+	// deviceId, filepath
+	StatPath(op trace.Operation, deviceId string, target string) (*FileStat, error)
 }
 
 func OnlineStatPath(ctx context.Context, vc *exec.Container, path string) (*types.GuestFileInfo, error) {
@@ -81,9 +85,11 @@ func OnlineStatPath(ctx context.Context, vc *exec.Container, path string) (*type
 	return nil, fmt.Errorf("file %s not found on container %s", path, vc.ExecConfig.ID)
 }
 
-func OfflineStatPath(device storage.Disk, path string) (os.FileInfo, error) {
-	// given a device id check first with volume store
-	// if mode is a symbolic link, do a Readlink returns the destination of the named symbolic link
-
-	return nil, nil
-}
+//func OfflineStatPath(device storage.Disk, path string) (*fileStat, error) {
+//	// if mode is a symbolic link, do a Readlink returns the destination of the named symbolic link
+//	// this is the device path
+//	device.DiskPath().String()
+//
+//
+//	return nil, nil
+//}

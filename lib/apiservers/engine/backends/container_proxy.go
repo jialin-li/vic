@@ -696,8 +696,7 @@ func (c *ContainerProxy) StatPath(ctx context.Context, name, path string) (*type
 	statPathParams := storage.
 	NewStatPathParamsWithContext(ctx).
 		WithDeviceID(vc.ContainerID).
-		WithAbsTargetPath(path).
-		WithRelativeTargetPath(path)
+		WithTargetPath(path)
 
 	statPathOk, err := c.client.Storage.StatPath(statPathParams)
 	if err != nil {

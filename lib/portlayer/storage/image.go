@@ -25,6 +25,7 @@ import (
 	"github.com/vmware/vic/pkg/index"
 	"github.com/vmware/vic/pkg/trace"
 	"github.com/vmware/vic/pkg/vsphere/disk"
+	"github.com/vmware/vic/lib/portlayer/storage/compute"
 )
 
 // ImageStorer is an interface to store images in the Image Store
@@ -73,6 +74,9 @@ type ImageStorer interface {
 	// use either by way of inheritance or because it's attached to a
 	// container, this will return an error.
 	DeleteImage(op trace.Operation, image *Image) (*Image, error)
+
+	// StatPath returns the filestat of the target path if deviceId is an image in the image store.
+	StatPath(op trace.Operation, deviceId string, target string) (*compute.FileStat, error)
 }
 
 // Image is the handle to identify an image layer on the backing store.  The
