@@ -24,6 +24,7 @@ import (
 	"github.com/vmware/govmomi/vim25/types"
 	"github.com/vmware/vic/lib/config/executor"
 	"github.com/vmware/vic/lib/portlayer/storage"
+	"github.com/vmware/vic/lib/portlayer/storage/compute"
 	"github.com/vmware/vic/lib/portlayer/util"
 	"github.com/vmware/vic/pkg/trace"
 	"github.com/vmware/vic/pkg/vsphere/datastore"
@@ -190,4 +191,31 @@ func (v *VolumeStore) VolumesList(op trace.Operation) ([]*storage.Volume, error)
 	}
 
 	return volumes, nil
+}
+
+func (v *VolumeStore) StatPath(op trace.Operation, deviceId string, target string) (*compute.FileStat, error) {
+	v.volDiskDsURL(deviceId)
+
+	diskDsURI := v.volDiskDsURL(deviceId)
+	config := disk.NewPersistentDisk(diskDsURI)
+	dsk, err := v.dm.CreateAndAttach(op, config)
+	if err != nil {
+		op.Debugf("Failed to attach disk for the volume")
+		return nil, err
+	}
+
+	err = dsk.Mount(mountPath, nil)
+	if err != nil {
+		op.Debugf("Failed to mount the disk")
+		return nil, err
+	}
+
+	defer func() {
+		err = dsk.Unmount()
+		if err != nil {
+			op.Errorf("Failed to unmount device: %s", err)
+		}
+	}()
+
+	return compute.InspectFileStat(path.Join(mountPath, target))
 }

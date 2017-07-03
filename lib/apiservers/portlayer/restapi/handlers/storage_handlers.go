@@ -516,7 +516,6 @@ func (h *StorageHandlersImpl) VolumeJoin(params storage.VolumeJoinParams) middle
 }
 
 func (h *StorageHandlersImpl) StatPath(params storage.StatPathParams) middleware.Responder {
-
 	// do offline container stat path, if fails do online
 	//op := trace.NewOperation(context.Background(), fmt.Sprintf("StatPath(%s)", params.DeviceID))
 	//if err == nil {
@@ -783,31 +782,3 @@ func createVsphereVolumeStore(op trace.Operation, dsurl *url.URL, name string, h
 	}
 	return vs, nil
 }
-
-//func findDevice(op trace.Operation, h *StorageHandlersImpl, id string) (spl.Disk, error) {
-//	// look up in volume store first
-//	vol, err := h.volumeCache.VolumeGet(op, id)
-//	if err != nil {
-//		// look up in img store if not in volume store
-//		host, err := sys.UUID()
-//		if err != nil {
-//			log.Errorf("Failed to determine host UUID")
-//			return nil, err
-//		}
-//		// get reference to image store
-//		store, err := util.ImageStoreNameToURL(host)
-//		if err != nil {
-//			return nil, err
-//		}
-//
-//		img, err := h.imageCache.GetImage(op, store, id)
-//		if err != nil {
-//			return nil, err
-//		}
-//
-//		return img.Disk, nil
-//	} else {
-//		return vol.Device, nil
-//	}
-//}
-

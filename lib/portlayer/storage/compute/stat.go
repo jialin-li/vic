@@ -19,6 +19,7 @@ package compute
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -28,9 +29,6 @@ import (
 	"github.com/vmware/govmomi/vim25/types"
 	"github.com/vmware/vic/lib/portlayer/exec"
 	"github.com/vmware/vic/pkg/trace"
-	"os"
-	"path"
-	"github.com/derekparker/delve/pkg/dwarf/op"
 )
 
 // TODO: still need to figure this part out
@@ -89,7 +87,7 @@ func StatPath(ctx context.Context, vc *exec.Container, path string) (*types.Gues
 }
 
 // InspectFileStat runs lstat on the target
-func InspectFileStat (target string) (*FileStat, error) {
+func InspectFileStat(target string) (*FileStat, error) {
 	fileInfo, err := os.Lstat(target)
 	if err != nil {
 		return nil, err
@@ -97,7 +95,7 @@ func InspectFileStat (target string) (*FileStat, error) {
 
 	var linkTarget string
 	// check for symlink
-	if fileInfo.Mode() & os.ModeSymlink != 0 {
+	if fileInfo.Mode()&os.ModeSymlink != 0 {
 		linkTarget, err = os.Readlink(target)
 		if err != nil {
 			return nil, err

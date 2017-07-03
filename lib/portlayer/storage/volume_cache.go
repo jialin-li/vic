@@ -23,9 +23,10 @@ import (
 	log "github.com/Sirupsen/logrus"
 
 	"github.com/vmware/vic/lib/portlayer/exec"
+	"github.com/vmware/vic/lib/portlayer/storage/compute"
 	"github.com/vmware/vic/lib/portlayer/util"
+	"github.com/vmware/vic/pkg/errors"
 	"github.com/vmware/vic/pkg/trace"
-	//"github.com/vmware/vic/lib/portlayer/storage/compute"
 )
 
 // VolumeLookupCache caches Volume references to volumes in the system.
@@ -232,4 +233,21 @@ func volumeInUse(ID string) error {
 	}
 
 	return nil
+}
+
+func (v *VolumeLookupCache) StatPath(op trace.Operation, deviceId string, target string) (*compute.FileStat, error) {
+	v.vlcLock.Lock()
+	defer v.vlcLock.Unlock()
+	// check if the device is a volume
+	vol, ok := v.vlc[deviceId]
+	if !ok {
+		return nil, errors.Errorf("Device is not a volume")
+	}
+
+	vs, err := v.volumeStore(vol.Store)
+	if err != nil {
+		return nil, err
+	}
+
+	return vs.StatPath(op, deviceId, target)
 }
