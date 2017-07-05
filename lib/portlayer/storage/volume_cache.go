@@ -40,6 +40,8 @@ type VolumeLookupCache struct {
 
 	// Maps the service url of the volume store to the underlying data storage implementation
 	volumeStores map[string]VolumeStorer
+
+
 }
 
 func NewVolumeLookupCache(op trace.Operation) *VolumeLookupCache {
@@ -241,7 +243,7 @@ func (v *VolumeLookupCache) StatPath(op trace.Operation, deviceId string, target
 	// check if the device is a volume
 	vol, ok := v.vlc[deviceId]
 	if !ok {
-		return nil, errors.Errorf("Device is not a volume")
+		return nil, errors.Errorf("existing volumes are %v,  Device is not a volume", v.vlc)
 	}
 
 	vs, err := v.volumeStore(vol.Store)

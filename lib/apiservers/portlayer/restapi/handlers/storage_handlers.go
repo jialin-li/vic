@@ -517,21 +517,27 @@ func (h *StorageHandlersImpl) VolumeJoin(params storage.VolumeJoinParams) middle
 
 func (h *StorageHandlersImpl) StatPath(params storage.StatPathParams) middleware.Responder {
 	// do offline container stat path, if fails do online
-	//op := trace.NewOperation(context.Background(), fmt.Sprintf("StatPath(%s)", params.DeviceID))
-	//if err == nil {
-	//	fileStat, err := splc.OfflineStatPath(device, params.TargetPath)
-	//	if err != nil {
-	//		// TODO need to edit swagger to return error response
-	//		return nil
-	//	}
-	//
-	//	return storage.
-	//	NewStatPathOK().
-	//		WithMode(fileStat.Mode).
-	//		WithLinkTarget(fileStat.LinkTarget).
-	//		WithName(fileStat.Name).
-	//		WithSize(fileStat.Size)
-	//}
+	op := trace.NewOperation(context.Background(), fmt.Sprintf("StatPath(%s)", params.ObjectID))
+
+	fileStat, err := h.volumeCache.StatPath(op, params.ObjectID, params.TargetPath)
+	if err != nil {
+		//fileStat, err = h.imageCache.StatPath(op, params.ObjectID, params.TargetPath)
+		return storage.
+		NewStatPathOK().
+			WithMode(1).
+			WithLinkTarget("symlink").
+			WithName(err.Error()).
+			WithSize(60)
+	}
+
+	if err == nil {
+		return storage.
+		NewStatPathOK().
+			WithMode(fileStat.Mode).
+			WithLinkTarget(fileStat.LinkTarget).
+			WithName(fileStat.Name).
+			WithSize(fileStat.Size)
+	}
 
 	// assume it's online container and obj id is container id first.
 	defer trace.End(trace.Begin(params.ObjectID))

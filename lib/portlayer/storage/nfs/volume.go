@@ -23,6 +23,7 @@ import (
 
 	"github.com/vmware/vic/lib/config/executor"
 	"github.com/vmware/vic/lib/portlayer/storage"
+	"github.com/vmware/vic/lib/portlayer/storage/compute"
 	"github.com/vmware/vic/lib/portlayer/util"
 	"github.com/vmware/vic/pkg/trace"
 )
@@ -272,3 +273,25 @@ func (v *VolumeStore) getMetadata(op trace.Operation, ID string, target Target) 
 	op.Infof("Successfully read volume metadata at (%s)", metadataPath)
 	return info, nil
 }
+
+func (v *VolumeStore) StatPath(op trace.Operation, deviceId string, targetPath string) (*compute.FileStat, error) {
+	target, err := v.Service.Mount(op)
+	if err != nil {
+		return nil, err
+	}
+	defer v.Service.Unmount(op)
+
+	fileInfo, _, err := target.Lookup(targetPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var linkTarget string
+	// not sure how to read symlink with nfs server
+	if fileInfo.Mode() & os.ModeSymlink != 0 {
+		linkTarget = "nfs symlink"
+	}
+
+	return &compute.FileStat{linkTarget, uint32(fileInfo.Mode()), fileInfo.Name(), fileInfo.Size()}, nil
+}
+

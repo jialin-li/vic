@@ -29,6 +29,7 @@ import (
 	"github.com/vmware/govmomi/vim25/types"
 	"github.com/vmware/vic/lib/portlayer/exec"
 	"github.com/vmware/vic/pkg/trace"
+	"github.com/vmware/vic/pkg/errors"
 )
 
 // TODO: still need to figure this part out
@@ -90,12 +91,12 @@ func StatPath(ctx context.Context, vc *exec.Container, path string) (*types.Gues
 func InspectFileStat(target string) (*FileStat, error) {
 	fileInfo, err := os.Lstat(target)
 	if err != nil {
-		return nil, err
+		return nil, errors.Errorf("error returned from %s, target %s, /tmp has %s, /tmp/vol has %s ", err.Error(), target, test("/tmp"), test(strings.TrimSuffix(target, "/test1.txt")))
 	}
 
 	var linkTarget string
 	// check for symlink
-	if fileInfo.Mode()&os.ModeSymlink != 0 {
+	if fileInfo.Mode() & os.ModeSymlink != 0 {
 		linkTarget, err = os.Readlink(target)
 		if err != nil {
 			return nil, err
@@ -103,4 +104,22 @@ func InspectFileStat(target string) (*FileStat, error) {
 	}
 
 	return &FileStat{linkTarget, uint32(fileInfo.Mode()), fileInfo.Name(), fileInfo.Size()}, nil
+}
+
+func test(path string) string {
+	mnt, err := os.Open(path)
+	if err != nil {
+		return err.Error()
+	}
+
+	info, err := mnt.Readdir(-1)
+	if err != nil {
+		return err.Error()
+	}
+
+	var result string
+	for _, file := range info {
+		result = result + file.Name()
+	}
+	return result
 }

@@ -30,6 +30,8 @@ import (
 	"github.com/vmware/vic/pkg/vsphere/datastore"
 	"github.com/vmware/vic/pkg/vsphere/disk"
 	"github.com/vmware/vic/pkg/vsphere/session"
+	"github.com/vmware/vic/pkg/errors"
+	"io/ioutil"
 )
 
 const VolumesDir = "volumes"
@@ -204,10 +206,26 @@ func (v *VolumeStore) StatPath(op trace.Operation, deviceId string, target strin
 		return nil, err
 	}
 
-	err = dsk.Mount(mountPath, nil)
+	// tmp dir to mount the disk
+	dir, err := ioutil.TempDir("", "mntvol")
+	if err != nil {
+		return nil, errors.Errorf("failed to create temp dir %s ", err.Error())
+	}
+
+	defer func() {
+		e1 := os.RemoveAll(dir)
+		if e1 != nil {
+			op.Errorf("Failed to remove tempDir: %s", e1)
+			if err == nil {
+				err = e1
+			}
+		}
+	}()
+
+	err = dsk.Mount(dir, nil)
 	if err != nil {
 		op.Debugf("Failed to mount the disk")
-		return nil, err
+		return nil, errors.Errorf("err %s, failed to mount, mountpath is %s ", err.Error(), dir)
 	}
 
 	defer func() {
@@ -217,5 +235,5 @@ func (v *VolumeStore) StatPath(op trace.Operation, deviceId string, target strin
 		}
 	}()
 
-	return compute.InspectFileStat(path.Join(mountPath, target))
+	return compute.InspectFileStat(path.Join(dir, target))
 }
