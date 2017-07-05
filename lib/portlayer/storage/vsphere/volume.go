@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"io/ioutil"
 	"path"
 
 	"github.com/vmware/govmomi/object"
@@ -31,7 +32,6 @@ import (
 	"github.com/vmware/vic/pkg/vsphere/disk"
 	"github.com/vmware/vic/pkg/vsphere/session"
 	"github.com/vmware/vic/pkg/errors"
-	"io/ioutil"
 )
 
 const VolumesDir = "volumes"
@@ -195,7 +195,7 @@ func (v *VolumeStore) VolumesList(op trace.Operation) ([]*storage.Volume, error)
 	return volumes, nil
 }
 
-func (v *VolumeStore) StatPath(op trace.Operation, deviceId string, target string) (*compute.FileStat, error) {
+func (v *VolumeStore) StatPath(op trace.Operation, deviceId string, target string) (stat *compute.FileStat, err error) {
 	v.volDiskDsURL(deviceId)
 
 	diskDsURI := v.volDiskDsURL(deviceId)
@@ -206,10 +206,57 @@ func (v *VolumeStore) StatPath(op trace.Operation, deviceId string, target strin
 		return nil, err
 	}
 
+	defer func() {
+		e1 := v.dm.Detach(op, config)
+		if e1 != nil {
+			if err == nil {
+				err = e1
+			}
+		}
+	}()
+
 	// tmp dir to mount the disk
 	dir, err := ioutil.TempDir("", "mntvol")
 	if err != nil {
-		return nil, errors.Errorf("failed to create temp dir %s ", err.Error())
+		err = errors.Errorf("Failed to create temp dir %s ", err.Error())
+		return nil, err
+	}
+
+	defer func() {
+		e1 := os.Remove(dir)
+		if e1 != nil {
+			op.Errorf("Failed to remove tempDir: %s", e1)
+			err = errors.Errorf(compute.Test(dir))
+			//if err == nil {
+			//	err = e1
+			//}
+		}
+	}()
+
+	err = dsk.Mount(dir, nil)
+	if err != nil {
+		op.Debugf("Failed to mount the disk")
+		return nil, errors.Errorf("Failed to mount: %s ", err.Error())
+	}
+
+	defer func() {
+		e1 := dsk.Unmount()
+		if e1 != nil {
+			op.Debugf("Failed to unmount device: %s", err)
+			err = errors.Errorf("Failed to unmount device, error is %s ", err.Error())
+		}
+	}()
+
+	return compute.InspectFileStat(path.Join(dir, target))
+}
+
+
+/*
+
+// tmp dir to mount the disk
+	dir, err := ioutil.TempDir("", "mnt-"+portlayer.Scratch.ID)
+	if err != nil {
+		op.Errorf("Failed to create tempDir: %s", err)
 	}
 
 	defer func() {
@@ -222,18 +269,20 @@ func (v *VolumeStore) StatPath(op trace.Operation, deviceId string, target strin
 		}
 	}()
 
-	err = dsk.Mount(dir, nil)
-	if err != nil {
-		op.Debugf("Failed to mount the disk")
-		return nil, errors.Errorf("err %s, failed to mount, mountpath is %s ", err.Error(), dir)
+	if err = vmdisk.Mount(dir, nil); err != nil {
+		op.Errorf("Failed to mount device %s to dir %s", vmdisk.DevicePath, dir)
+		return err
 	}
 
 	defer func() {
-		err = dsk.Unmount()
-		if err != nil {
-			op.Errorf("Failed to unmount device: %s", err)
+		e2 := vmdisk.Unmount()
+		if e2 != nil {
+			op.Errorf("Failed to unmount device: %s", e2)
+			if err == nil {
+				err = e2
+			}
 		}
 	}()
 
-	return compute.InspectFileStat(path.Join(dir, target))
-}
+
+*/

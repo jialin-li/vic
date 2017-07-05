@@ -91,7 +91,7 @@ func StatPath(ctx context.Context, vc *exec.Container, path string) (*types.Gues
 func InspectFileStat(target string) (*FileStat, error) {
 	fileInfo, err := os.Lstat(target)
 	if err != nil {
-		return nil, errors.Errorf("error returned from %s, target %s, /tmp has %s, /tmp/vol has %s ", err.Error(), target, test("/tmp"), test(strings.TrimSuffix(target, "/test1.txt")))
+		return nil, errors.Errorf("error returned from %s, target %s", err.Error(), target)
 	}
 
 	var linkTarget string
@@ -106,7 +106,7 @@ func InspectFileStat(target string) (*FileStat, error) {
 	return &FileStat{linkTarget, uint32(fileInfo.Mode()), fileInfo.Name(), fileInfo.Size()}, nil
 }
 
-func test(path string) string {
+func Test(path string) string {
 	mnt, err := os.Open(path)
 	if err != nil {
 		return err.Error()

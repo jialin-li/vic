@@ -69,7 +69,6 @@ const (
 	defaultDiskSizeInKB = 8 * 1024 * 1024
 	metaDataDir         = "imageMetadata"
 	manifest            = "manifest"
-	mountPath	    = "/mnt/tmp"
 )
 
 type ImageStore struct {
@@ -770,7 +769,10 @@ func (v *ImageStore) StatPath(op trace.Operation, deviceId string, target string
 		return nil, err
 	}
 
-	err = dsk.Mount(mountPath, nil)
+	defer v.dm.Detach(op, config)
+
+	// TODO create tempdir like volume, move this code to stat.go
+	err = dsk.Mount("", nil)
 	if err != nil {
 		op.Debugf("Failed to mount the disk")
 		return nil, err
@@ -783,5 +785,5 @@ func (v *ImageStore) StatPath(op trace.Operation, deviceId string, target string
 		}
 	}()
 
-	return compute.InspectFileStat(path.Join(mountPath, target))
+	return compute.InspectFileStat(path.Join("", target))
 }
