@@ -522,14 +522,15 @@ func (h *StorageHandlersImpl) StatPath(params storage.StatPathParams) middleware
 	fileStat, err := h.volumeCache.StatPath(op, params.ObjectID, params.TargetPath)
 	if err != nil {
 		//fileStat, err = h.imageCache.StatPath(op, params.ObjectID, params.TargetPath)
-		return storage.
-		NewStatPathOK().
-			WithMode(1).
-			WithLinkTarget("symlink").
-			WithName(err.Error()).
-			WithSize(60)
+		//return storage.
+		//NewStatPathOK().
+		//	WithMode(1).
+		//	WithLinkTarget("symlink").
+		//	WithName(err.Error()).
+		//	WithSize(60)
 	}
 
+	// offline succeeded
 	if err == nil {
 		return storage.
 		NewStatPathOK().

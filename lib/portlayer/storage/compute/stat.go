@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"io/ioutil"
 
 	log "github.com/Sirupsen/logrus"
 
@@ -30,6 +31,7 @@ import (
 	"github.com/vmware/vic/lib/portlayer/exec"
 	"github.com/vmware/vic/pkg/trace"
 	"github.com/vmware/vic/pkg/errors"
+	"github.com/vmware/vic/pkg/vsphere/disk"
 )
 
 // TODO: still need to figure this part out
@@ -87,8 +89,44 @@ func StatPath(ctx context.Context, vc *exec.Container, path string) (*types.Gues
 	return nil, fmt.Errorf("file %s not found on container %s", path, vc.ExecConfig.ID)
 }
 
+// OfflineStatPath creates a tmp directory to mount the disk and then inspect the file stat
+func OfflineStatPath(op trace.Operation, dsk *disk.VirtualDisk, target string) (*FileStat, error) {
+	// tmp dir to mount the disk
+	dir, err := ioutil.TempDir("", "mntfs")
+	if err != nil {
+		err = errors.Errorf("Failed to create temp dir %s ", err.Error())
+		return nil, err
+	}
+
+	defer func() {
+		e1 := os.RemoveAll(dir)
+		if e1 != nil {
+			op.Errorf("Failed to remove tempDir: %s", e1)
+			if err == nil {
+				err = e1
+			}
+		}
+	}()
+
+	err = dsk.Mount(dir, nil)
+	if err != nil {
+		op.Debugf("Failed to mount the disk")
+		return nil, errors.Errorf("Failed to mount: %s ", err.Error())
+	}
+
+	defer func() {
+		e1 := dsk.Unmount()
+		if e1 != nil {
+			op.Debugf("Failed to unmount device: %s", err)
+			err = errors.Errorf("Failed to unmount device, error is %s ", err.Error())
+		}
+	}()
+
+	return inspectFileStat(filepath.Join(dir, target))
+}
+
 // InspectFileStat runs lstat on the target
-func InspectFileStat(target string) (*FileStat, error) {
+func inspectFileStat(target string) (*FileStat, error) {
 	fileInfo, err := os.Lstat(target)
 	if err != nil {
 		return nil, errors.Errorf("error returned from %s, target %s", err.Error(), target)
@@ -106,20 +144,20 @@ func InspectFileStat(target string) (*FileStat, error) {
 	return &FileStat{linkTarget, uint32(fileInfo.Mode()), fileInfo.Name(), fileInfo.Size()}, nil
 }
 
-func Test(path string) string {
-	mnt, err := os.Open(path)
-	if err != nil {
-		return err.Error()
-	}
-
-	info, err := mnt.Readdir(-1)
-	if err != nil {
-		return err.Error()
-	}
-
-	var result string
-	for _, file := range info {
-		result = result + file.Name()
-	}
-	return result
-}
+//func Test(path string) string {
+//	mnt, err := os.Open(path)
+//	if err != nil {
+//		return err.Error()
+//	}
+//
+//	info, err := mnt.Readdir(-1)
+//	if err != nil {
+//		return err.Error()
+//	}
+//
+//	var result string
+//	for _, file := range info {
+//		result = result + file.Name()
+//	}
+//	return result
+//}

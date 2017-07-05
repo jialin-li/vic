@@ -736,7 +736,7 @@ func createBaseStructure(op trace.Operation, vmdisk *disk.VirtualDisk) (err erro
 	return nil
 }
 
-func (v *ImageStore) StatPath(op trace.Operation, deviceId string, target string) (*compute.FileStat, error) {
+func (v *ImageStore) StatPath(op trace.Operation, deviceId string, target string) (stat *compute.FileStat, err error) {
 	host, err := sys.UUID()
 	if err != nil {
 		op.Debugf("Failed to determine host UUID")
@@ -769,21 +769,14 @@ func (v *ImageStore) StatPath(op trace.Operation, deviceId string, target string
 		return nil, err
 	}
 
-	defer v.dm.Detach(op, config)
-
-	// TODO create tempdir like volume, move this code to stat.go
-	err = dsk.Mount("", nil)
-	if err != nil {
-		op.Debugf("Failed to mount the disk")
-		return nil, err
-	}
-
 	defer func() {
-		err = dsk.Unmount()
-		if err != nil {
-			op.Errorf("Failed to unmount device: %s", err)
+		e1 := v.dm.Detach(op, config)
+		if e1 != nil {
+			if err == nil {
+				err = e1
+			}
 		}
 	}()
 
-	return compute.InspectFileStat(path.Join("", target))
+	return compute.OfflineStatPath(op, dsk, target)
 }

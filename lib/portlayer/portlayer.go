@@ -39,10 +39,10 @@ import (
 
 // API defines the interface the REST server used by the portlayer expects the
 // implementation side to export
-type API interface {
-	storage.ImageStorer
-	storage.VolumeStorer
-}
+//type API interface {
+//	storage.ImageStorer
+//	storage.VolumeStorer
+//}
 
 func Init(ctx context.Context, sess *session.Session) error {
 	source, err := extraconfig.GuestInfoSource()

@@ -238,6 +238,8 @@ func volumeInUse(ID string) error {
 func (v *VolumeLookupCache) StatPath(op trace.Operation, deviceId string, target string) (*compute.FileStat, error) {
 	v.vlcLock.Lock()
 	defer v.vlcLock.Unlock()
+	// TODO: If we refactor out store in volume store
+
 	// check if the device is a volume
 	vol, ok := v.vlc[deviceId]
 	if !ok {
