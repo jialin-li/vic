@@ -90,7 +90,9 @@ func StatPath(ctx context.Context, vc *exec.Container, path string) (*types.Gues
 }
 
 // OfflineStatPath creates a tmp directory to mount the disk and then inspect the file stat
-func OfflineStatPath(op trace.Operation, dsk *disk.VirtualDisk, target string) (*FileStat, error) {
+func OfflineStatPath(op trace.Operation, dsk *disk.VirtualDisk, target string) (stat *FileStat, err error) {
+
+	/* TODO: once pr 5650 is in, can use the attach and mount function instead */
 	// tmp dir to mount the disk
 	dir, err := ioutil.TempDir("", "mntfs")
 	if err != nil {
@@ -122,11 +124,11 @@ func OfflineStatPath(op trace.Operation, dsk *disk.VirtualDisk, target string) (
 		}
 	}()
 
-	return inspectFileStat(filepath.Join(dir, target))
+	return InspectFileStat(filepath.Join(dir, target))
 }
 
 // InspectFileStat runs lstat on the target
-func inspectFileStat(target string) (*FileStat, error) {
+func InspectFileStat(target string) (*FileStat, error) {
 	fileInfo, err := os.Lstat(target)
 	if err != nil {
 		return nil, errors.Errorf("error returned from %s, target %s", err.Error(), target)

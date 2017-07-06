@@ -238,7 +238,7 @@ func volumeInUse(ID string) error {
 func (v *VolumeLookupCache) StatPath(op trace.Operation, deviceId string, target string) (*compute.FileStat, error) {
 	v.vlcLock.Lock()
 	defer v.vlcLock.Unlock()
-	// TODO: If we refactor out store in volume store
+	// FIXME: If we change the structure of volume cache, we can no longer get volume store from a deviceID.
 
 	// check if the device is a volume
 	vol, ok := v.vlc[deviceId]
@@ -248,7 +248,7 @@ func (v *VolumeLookupCache) StatPath(op trace.Operation, deviceId string, target
 
 	vs, err := v.volumeStore(vol.Store)
 	if err != nil {
-		return nil, err
+		return nil, errors.Errorf("In volume cache: ", err.Error())
 	}
 
 	return vs.StatPath(op, deviceId, target)

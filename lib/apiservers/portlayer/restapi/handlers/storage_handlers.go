@@ -521,7 +521,7 @@ func (h *StorageHandlersImpl) StatPath(params storage.StatPathParams) middleware
 
 	fileStat, err := h.volumeCache.StatPath(op, params.ObjectID, params.TargetPath)
 	if err != nil {
-		//fileStat, err = h.imageCache.StatPath(op, params.ObjectID, params.TargetPath)
+		fileStat, err = h.imageCache.StatPath(op, params.ObjectID, params.TargetPath)
 		//return storage.
 		//NewStatPathOK().
 		//	WithMode(1).
@@ -539,6 +539,8 @@ func (h *StorageHandlersImpl) StatPath(params storage.StatPathParams) middleware
 			WithName(fileStat.Name).
 			WithSize(fileStat.Size)
 	}
+
+	//TODO: if throws disk in use error, proceed to online
 
 	// assume it's online container and obj id is container id first.
 	defer trace.End(trace.Begin(params.ObjectID))

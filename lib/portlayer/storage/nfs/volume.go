@@ -26,6 +26,7 @@ import (
 	"github.com/vmware/vic/lib/portlayer/storage/compute"
 	"github.com/vmware/vic/lib/portlayer/util"
 	"github.com/vmware/vic/pkg/trace"
+	"strings"
 )
 
 const (
@@ -281,17 +282,28 @@ func (v *VolumeStore) StatPath(op trace.Operation, deviceId string, targetPath s
 	}
 	defer v.Service.Unmount(op)
 
-	fileInfo, _, err := target.Lookup(targetPath)
+	files, err := target.ReadDir(v.volDirPath(deviceId))
+	var result string
+	for _, file := range files {
+		result = result + " " + file.Name()
+	}
+
+	fileInfo, _, err := target.Lookup(path.Join(v.volDirPath(deviceId), targetPath))
 	if err != nil {
 		return nil, err
 	}
 
-	var linkTarget string
-	// not sure how to read symlink with nfs server
-	if fileInfo.Mode() & os.ModeSymlink != 0 {
-		linkTarget = "nfs symlink"
+	// nfs server returns "" for file name when doing a look up, need to fill in the value from targetPath instead
+	newPath := targetPath
+	for strings.HasSuffix(newPath, "/") {
+		newPath = strings.TrimSuffix(newPath, "/")
 	}
+	// length of pathTokens is guaranteed to be >= 1
+	pathTokens := strings.Split(strings.TrimSuffix(newPath, "/"), "/")
+	fileName := pathTokens[len(pathTokens) - 1]
 
-	return &compute.FileStat{linkTarget, uint32(fileInfo.Mode()), fileInfo.Name(), fileInfo.Size()}, nil
+	// FIXME: cannot read symlink.
+
+	return &compute.FileStat{"", uint32(fileInfo.Mode()), fileName, fileInfo.Size()}, nil
 }
 

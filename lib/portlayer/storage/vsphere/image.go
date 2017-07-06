@@ -736,7 +736,8 @@ func createBaseStructure(op trace.Operation, vmdisk *disk.VirtualDisk) (err erro
 	return nil
 }
 
-func (v *ImageStore) StatPath(op trace.Operation, deviceId string, target string) (stat *compute.FileStat, err error) {
+func (v *ImageStore) StatPath(op trace.Operation, deviceId string, target string) (stat *compute.FileStat, err error){
+
 	host, err := sys.UUID()
 	if err != nil {
 		op.Debugf("Failed to determine host UUID")
