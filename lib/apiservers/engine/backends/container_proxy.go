@@ -1114,7 +1114,7 @@ func (c *ContainerProxy) createGzipTarClient(connectTimeout, responseTimeout, re
 		return bsc.Consume(gzReader, data)
 	})
 	r.Consumers["application/x-tar"] = runtime.ConsumerFunc(func(rdr io.Reader, data interface{}) error {
-		return bsc.Consume(tar.NewReader(rdr), data)
+		return bsc.Consume(rdr, data)
 	})
 	return plClient, transport
 }
