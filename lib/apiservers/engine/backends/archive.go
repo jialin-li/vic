@@ -190,7 +190,7 @@ func (c *Container) ContainerStatPath(name string, path string) (stat *types.Con
 	mounts := mountsFromContainer(vc)
 	store, deviceId, filterSpec := resolvePathWithMountPoints(mounts, path, vc.ContainerID)
 
-	stat, err = c.containerProxy.StatPath(context.Background(), store, deviceId, *filterSpec)
+	stat, err = c.containerProxy.StatPath(op, store, deviceId, *filterSpec)
 	if err != nil {
 		return nil, err
 	}

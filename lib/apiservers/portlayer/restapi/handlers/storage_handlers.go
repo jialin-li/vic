@@ -20,13 +20,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strconv"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/go-openapi/runtime/middleware"
-
-	"github.com/vmware/govmomi/vim25/types"
 
 	"github.com/vmware/vic/lib/apiservers/portlayer/models"
 	"github.com/vmware/vic/lib/apiservers/portlayer/restapi/operations"
@@ -608,6 +605,8 @@ func (h *StorageHandlersImpl) ExportArchive(params storage.ExportArchiveParams) 
 
 	return NewStreamOutputHandler("ExportArchive").WithPayload(NewFlushingReader(r), params.DeviceID, func() { r.Close() })
 }
+
+// StatPath returns file info on the target path of a container copy
 func (h *StorageHandlersImpl) StatPath(params storage.StatPathParams) middleware.Responder {
 	defer trace.End(trace.Begin(""))
 	op := trace.NewOperation(context.Background(), "StatPath: %s", params.DeviceID)
@@ -644,7 +643,7 @@ func (h *StorageHandlersImpl) StatPath(params storage.StatPathParams) middleware
 	}
 
 	return storage.
-	NewStatPathOK().
+		NewStatPathOK().
 		WithMode(fileStat.Mode).
 		WithLinkTarget(fileStat.LinkTarget).
 		WithName(fileStat.Name).

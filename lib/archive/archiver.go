@@ -22,8 +22,9 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/vmware/vic/pkg/trace"
 	"path/filepath"
+
+	"github.com/vmware/vic/pkg/trace"
 )
 
 // FilterType specifies what type of filter to apply in a FilterSpec
@@ -213,5 +214,5 @@ func ResolveImportPath(fs *FilterSpec) []string {
 		resolvedPath := rebasePath + string(filepath.Separator) + path
 		resolvedPaths = append(resolvedPaths, resolvedPath)
 	}
-		return resolvedPaths
+	return resolvedPaths
 }

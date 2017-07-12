@@ -17,8 +17,8 @@ package vsphere
 import (
 	"io"
 	"os"
-	"time"
 	"path/filepath"
+	"time"
 
 	"github.com/vmware/govmomi/guest"
 	"github.com/vmware/govmomi/vim25/types"
@@ -91,10 +91,10 @@ func (t *ToolboxDataSource) Stat(op trace.Operation, spec *archive.FilterSpec) (
 
 	return &storage.FileStat{
 		LinkTarget: file.Attributes.GetGuestFileAttributes().SymlinkTarget,
-		Mode: mode,
-		Name: filepath.Base(file.Path),
-		Size: file.Size,
-		ModTime: *file.Attributes.GetGuestFileAttributes().ModificationTime}, nil
+		Mode:       mode,
+		Name:       filepath.Base(file.Path),
+		Size:       file.Size,
+		ModTime:    *file.Attributes.GetGuestFileAttributes().ModificationTime}, nil
 }
 
 // helper function to find the file using guesttool
@@ -138,8 +138,6 @@ func (t *ToolboxDataSource) inspectFile(op trace.Operation, path string) (*types
 		},
 	}, nil
 }
-
-
 
 func (t *ToolboxDataSource) Close() error {
 	t.Clean()
