@@ -17,7 +17,6 @@ package handlers
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
@@ -40,7 +39,6 @@ import (
 	"github.com/vmware/vic/lib/portlayer/util"
 	"github.com/vmware/vic/pkg/trace"
 	"github.com/vmware/vic/pkg/vsphere/datastore"
-	"github.com/vmware/vic/lib/install/data"
 )
 
 // StorageHandlersImpl is the receiver for all of the storage handler methods
@@ -656,52 +654,6 @@ func (h *StorageHandlersImpl) StatPath(params storage.StatPathParams) middleware
 }
 
 //utility functions
-
-func preformOnlineStatPath(op trace.Operation, params storage.StatPathParams, fs *archive.FilterSpec) middleware.Responder {
-	vc := epl.Containers.Container(params.DeviceID)
-	if vc == nil {
-		return storage.NewStatPathNotFound()
-	}
-
-	paths := archive.ResolveImportPath(fs)
-	if len(paths) != 1 {
-		op.Errorf("incorrect number of paths to stat: %s. --- %d != 1", params.DeviceID, len(paths))
-		return storage.NewStatPathInternalServerError()
-	}
-
-	file, err := splc.StatPath(op, vc, paths[0])
-	if err != nil {
-		op.Errorf("error getting stat from device %s: %s", params.DeviceID, err.Error())
-		return storage.NewStatPathInternalServerError()
-	}
-
-	var mode uint32
-	switch types.GuestFileType(file.Type) {
-	case types.GuestFileTypeDirectory:
-		mode = uint32(os.ModeDir)
-	case types.GuestFileTypeSymlink:
-		mode = uint32(os.ModeSymlink)
-	default:
-		mode = uint32(os.FileMode(uint32(0600)))
-	}
-
-	ok := storage.
-	NewStatPathOK().
-		WithMode(mode).
-		WithLinkTarget(file.Attributes.GetGuestFileAttributes().SymlinkTarget).
-		WithName(filepath.Base(file.Path)).
-		WithSize(file.Size)
-
-	// add mod time bytes
-	modTimeBytes, err := file.Attributes.GetGuestFileAttributes().ModificationTime.GobEncode()
-	if err != nil {
-		op.Debugf("error getting mod time from statpath: %s", err.Error())
-	} else {
-		ok.ModTime = string(modTimeBytes)
-	}
-
-	return ok
-}
 
 // convert an SPL Image to a swagger-defined Image
 func convertImage(image *spl.Image) *models.Image {
