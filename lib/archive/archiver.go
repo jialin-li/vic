@@ -118,7 +118,7 @@ func CreateFilterSpec(op trace.Operation, spec map[string]FilterType) (*FilterSp
 }
 
 // Decodes a base64 encoded string from EncodeFilterSpec into a FilterSpec
-func DecodeFilterSpec(op trace.Operation, spec *string) (*FilterSpec, error) {
+func DecodeFilterSpec(op trace.Operation, spec string) (*FilterSpec, error) {
 	var filterSpec FilterSpec
 
 	// empty spec means don't apply any filtering
@@ -152,7 +152,7 @@ func DecodeFilterSpec(op trace.Operation, spec *string) (*FilterSpec, error) {
 }
 
 // Encode the filter spec
-func EncodeFilterSpec(op trace.Operation, spec *FilterSpec) (*string, error) {
+func EncodeFilterSpec(op trace.Operation, spec *FilterSpec) (string, error) {
 	mashalled, err := json.Marshal(spec)
 	if err != nil {
 		op.Errorf("Unable to encode filter spec: %s", err)

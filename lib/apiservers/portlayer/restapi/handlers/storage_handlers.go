@@ -573,14 +573,13 @@ func (h *StorageHandlersImpl) ImportArchive(params storage.ImportArchiveParams) 
 // ExportArchive creates a tar archive and returns to caller
 func (h *StorageHandlersImpl) ExportArchive(params storage.ExportArchiveParams) middleware.Responder {
 	defer trace.End(trace.Begin(""))
+	op := trace.NewOperation(context.Background(), "ExportArchive: %s", params.DeviceID)
 
 	id := params.DeviceID
 	ancestor := ""
 	if params.Ancestor != nil {
 		ancestor = *params.Ancestor
 	}
-
-	op := trace.NewOperation(context.Background(), "ExportArchive: %s:%s", id, ancestor)
 
 	filterSpec, err := archive.DecodeFilterSpec(op, params.FilterSpec)
 	if err != nil {
@@ -611,10 +610,9 @@ func (h *StorageHandlersImpl) StatPath(params storage.StatPathParams) middleware
 	defer trace.End(trace.Begin(""))
 	op := trace.NewOperation(context.Background(), "StatPath: %s", params.DeviceID)
 
-	// filterspec is required for statpath so it's a string
-	filterSpec, err := archive.DecodeFilterSpec(op, &params.FilterSpec)
+	filterSpec, err := archive.DecodeFilterSpec(op, params.FilterSpec)
 	if err != nil {
-		return storage.NewExportArchiveInternalServerError()
+		return storage.NewStatPathInternalServerError()
 	}
 
 	store, ok := spl.GetExporter(params.Store)
