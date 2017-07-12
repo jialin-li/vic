@@ -765,7 +765,7 @@ func (c *ContainerProxy) ArchiveImportWriter(op trace.Operation, store, deviceID
 		return nil, fmt.Errorf("ArchiveImportWriter called with either empty store or deviceID.  This is not allowed!")
 	}
 
-	plClient, transport := c.createNewAttachClientWithTimeouts(attachConnectTimeout, 0, attachAttemptTimeout)
+	plClient, transport := c.createGzipTarClient(attachConnectTimeout, 0, attachAttemptTimeout)
 	defer transport.Close()
 
 	pipeReader, pipeWriter := io.Pipe()

@@ -126,9 +126,6 @@ func (c *Container) ContainerExtractToDir(name, path string, noOverwriteDirNonDi
 		if err != nil {
 			return err
 		}
-		if header == nil {
-			continue
-		}
 
 		// Lookup the writer for that mount prefix
 		writer, err := writerMap.WriterForAsset(c.containerProxy, vc.ContainerID, path, *header)
@@ -142,11 +139,9 @@ func (c *Container) ContainerExtractToDir(name, path string, noOverwriteDirNonDi
 			return err
 		}
 
-		if header.Typeflag == tar.TypeReg {
-			if _, err := io.Copy(writer, tarReader); err != nil {
-				op.Errorf("Error while copying tar data for %s: %s", header.Name, err.Error())
-				return err
-			}
+		if _, err := io.Copy(writer, tarReader); err != nil {
+			op.Errorf("Error while copying tar data for %s: %s", header.Name, err.Error())
+			return err
 		}
 	}
 
@@ -240,7 +235,10 @@ func NewArchiveStreamWriterMap(op trace.Operation, mounts []types.MountPoint, co
 		// file data.txt from local /mnt/A/data.txt will come to the persona as mnt/A/data.txt.
 		// Here, we must tell the portlayer to remove "mnt/A".  The key to determining whether to
 		// strip "A" or "mnt/A" is based on the container destination path.
-		aw.filterSpec.StripPath = strings.TrimPrefix(containerDestPath, aw.mountPoint.Destination)
+		if containerDestPath != "/" && strings.HasPrefix(aw.mountPoint.Destination, containerDestPath) {
+			aw.filterSpec.StripPath = strings.TrimPrefix(aw.mountPoint.Destination, containerDestPath)
+		}
+
 		aw.filterSpec.Exclusions = make(map[string]struct{})
 		aw.filterSpec.Inclusions = make(map[string]struct{})
 
@@ -258,7 +256,6 @@ func NewArchiveStreamReaderMap(op trace.Operation, mounts []types.MountPoint) *A
 	readerMap := &ArchiveStreamReaderMap{}
 	readerMap.prefixTrie = patricia.NewTrie()
 	readerMap.op = op
-
 	for _, m := range mounts {
 		ar := ArchiveReader{
 			mountPoint: m,
@@ -276,7 +273,10 @@ func NewArchiveStreamReaderMap(op trace.Operation, mounts []types.MountPoint) *A
 		//
 		// Neither the volume nor the storage portlayer knows about /mnt/A.  The persona must tell
 		// the portlayer to rebase all files from this volume to the /mnt/A/ in the final tar stream.
-		ar.filterSpec.RebasePath = ar.mountPoint.Destination
+		if ar.mountPoint.Destination != "/" {
+			ar.filterSpec.RebasePath = ar.mountPoint.Destination
+		}
+
 		ar.filterSpec.Exclusions = make(map[string]struct{})
 		ar.filterSpec.Inclusions = make(map[string]struct{})
 
@@ -585,7 +585,6 @@ func (rm *ArchiveStreamReaderMap) ReadersForSourcePath(proxy VicContainerProxy, 
 	for _, node := range nodes {
 		if node.reader == nil {
 			var store, deviceID string
-			subpath := containerSourcePath
 			if node.mountPoint.Destination == "/" {
 				// Special case. / refers to container VMDK and not a volume vmdk.
 				store = containerStoreName
@@ -593,16 +592,6 @@ func (rm *ArchiveStreamReaderMap) ReadersForSourcePath(proxy VicContainerProxy, 
 			} else {
 				store = volumeStoreName
 				deviceID = node.mountPoint.Name
-				subpath = strings.TrimPrefix(containerSourcePath, node.mountPoint.Destination)
-			}
-
-			if strings.HasPrefix(containerSourcePath, node.mountPoint.Destination) {
-				// add the include path back
-				if node.filterSpec.Inclusions == nil {
-					node.filterSpec.Inclusions = make(map[string]struct{})
-				}
-
-				node.filterSpec.Inclusions[subpath] = struct{}{}
 			}
 
 			log.Infof("Lazily initializing export stream for %s [%s]", node.mountPoint.Name, node.mountPoint.Destination)
@@ -664,7 +653,12 @@ func resolvePathWithMountPoints(mounts []types.MountPoint, path, defaultDevice s
 
 	fs.RebasePath = mntpoint
 	fs.Inclusions = make(map[string]struct{})
-	fs.Inclusions[strings.TrimPrefix(path, mntpoint)] = struct{}{}
+	fs.Exclusions = make(map[string]struct{})
+	excludedPath := strings.TrimSuffix(path, "/")
+	includedPath := strings.TrimPrefix(excludedPath, mntpoint)
+	excludedPath = excludedPath + "/"
+	fs.Inclusions[includedPath] = struct{}{}
+	fs.Exclusions[excludedPath] = struct{}{}
 
 	return store, deviceID, fs
 }

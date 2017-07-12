@@ -15,16 +15,18 @@
 package vsphere
 
 import (
+	"archive/tar"
+	"compress/gzip"
+	"fmt"
 	"io"
-	"os"
-	"path/filepath"
-	"time"
+	"io/ioutil"
+	"path"
 
 	"github.com/vmware/govmomi/guest"
+	"github.com/vmware/govmomi/vim25/soap"
 	"github.com/vmware/govmomi/vim25/types"
 	"github.com/vmware/vic/lib/archive"
 	"github.com/vmware/vic/lib/portlayer/storage"
-	"github.com/vmware/vic/pkg/errors"
 	"github.com/vmware/vic/pkg/trace"
 	"github.com/vmware/vic/pkg/vsphere/vm"
 )
@@ -52,91 +54,68 @@ func (t *ToolboxDataSource) Export(op trace.Operation, spec *archive.FilterSpec,
 		return nil, err
 	}
 
-	// authenticate client and parse container host/port
 	auth := types.NamePasswordAuthentication{
 		Username: t.ID,
 	}
 
-	_ = filemgr
-	_ = auth
+	var readers []io.Reader
+	for path := range spec.Inclusions {
+		op.Debugf("path: %s", path)
+		// authenticate client and parse container host/port.
+		guestInfo, err := filemgr.InitiateFileTransferFromGuest(op, &auth, path)
+		if err != nil {
+			return nil, err
+		}
 
-	return nil, errors.New("toolbox export is not yet implemented")
+		url, err := client.ParseURL(guestInfo.Url)
+		if err != nil {
+			return nil, err
+		}
+
+		// download from guest. if download is a file, create a tar out of it.
+		// guest tools will not tar up single files.
+		op.Debugf("Downloading: %v --- %s from %d", url, path, t.ID[:8])
+		params := soap.DefaultDownload
+		rc, _, err := client.Download(url, &params)
+		if err != nil {
+			return nil, err
+		}
+
+		readers = append(readers, t.unZipAndExcldueTar(op, rc, spec, path, data))
+
+	}
+
+	return ioutil.NopCloser(io.MultiReader(readers...)), nil
 }
 
 // Export reads data from the associated data source and returns it as a tar archive
 func (t *ToolboxDataSource) Stat(op trace.Operation, spec *archive.FilterSpec) (*storage.FileStat, error) {
 	defer trace.End(trace.Begin(""))
 
-	// resolve import path
-	paths := archive.ResolveImportPath(spec)
-	if len(paths) != 1 {
-		op.Errorf("incorrect number of paths to stat: %s. --- %d != 1", t.ID, len(paths))
-		return nil, errors.Errorf("Incorrect number of paths to stat")
-	}
-
-	file, err := t.inspectFile(op, paths[0])
+	statTar, err := t.Export(op, spec, false)
+	defer statTar.Close()
 	if err != nil {
 		return nil, err
 	}
 
-	var mode uint32
-	switch types.GuestFileType(file.Type) {
-	case types.GuestFileTypeDirectory:
-		mode = uint32(os.ModeDir)
-	case types.GuestFileTypeSymlink:
-		mode = uint32(os.ModeSymlink)
-	default:
-		mode = uint32(os.FileMode(uint32(0600)))
+	tarReader := tar.NewReader(statTar)
+	header, err := tarReader.Next()
+	if err != nil || header == nil {
+		return nil, fmt.Errorf("unable to export stat for: %s -- %#v", t.ID, spec)
 	}
 
-	return &storage.FileStat{
-		LinkTarget: file.Attributes.GetGuestFileAttributes().SymlinkTarget,
-		Mode:       mode,
-		Name:       filepath.Base(file.Path),
-		Size:       file.Size,
-		ModTime:    *file.Attributes.GetGuestFileAttributes().ModificationTime}, nil
-}
-
-// helper function to find the file using guesttool
-func (t *ToolboxDataSource) inspectFile(op trace.Operation, path string) (*types.GuestFileInfo, error) {
-	// err returned if file does not exist on the host
-	client := t.VM.Session.Client.Client
-	filemgr, err := guest.NewOperationsManager(client, t.VM.Reference()).FileManager(op)
-	if err != nil {
-		return nil, err
+	stat := &storage.FileStat{
+		Mode:    uint32(header.Mode),
+		Name:    header.Name,
+		Size:    header.Size,
+		ModTime: header.ModTime,
 	}
 
-	auth := types.NamePasswordAuthentication{
-		Username: t.ID,
+	if header.Typeflag == tar.TypeSymlink {
+		stat.LinkTarget = header.Linkname
 	}
 
-	// List the files on the container path. If the path represents a regular
-	// file, it's file info are returned. If the path represents a directory,
-	// ListFiles will return all the files in that directory. This means that if
-	// the for loop does not return becuase the path does not exist in files.Filed.
-	// Consequently, we can safely assume the target is a directory.
-	var offset int32
-	files, err := filemgr.ListFiles(op, &auth, path, offset, 0, "")
-	if err != nil {
-		return nil, errors.Errorf("file listing for container %s failed\n: %s", t.ID, err.Error())
-	}
-
-	for _, file := range files.Files {
-		op.Debugf("Stats for file %s --- %s\n", path, file)
-		if file.Path == filepath.Base(path) {
-			return &file, nil
-		}
-	}
-
-	time := time.Now()
-	return &types.GuestFileInfo{
-		Path: path,
-		Type: string(types.GuestFileTypeDirectory),
-		Size: int64(4096),
-		Attributes: &types.GuestFileAttributes{
-			ModificationTime: &time,
-		},
-	}, nil
+	return stat, nil
 }
 
 func (t *ToolboxDataSource) Close() error {
@@ -144,3 +123,123 @@ func (t *ToolboxDataSource) Close() error {
 
 	return nil
 }
+
+//----------
+// Utility Functions
+//----------
+
+func (t *ToolboxDataSource) unZipAndExcldueTar(op trace.Operation, reader io.ReadCloser, spec *archive.FilterSpec, includePath string, data bool) io.ReadCloser {
+	// create a writer for gzip compressiona nd a tar archive
+	tarOut, tarIn := io.Pipe()
+	go func() {
+		gZipReader, err := gzip.NewReader(reader)
+		if err != nil {
+			op.Errorf("Error in unziptar: %s", err.Error())
+			tarIn.CloseWithError(err)
+			return
+		}
+		tarReader := tar.NewReader(gZipReader)
+		tarWriter := tar.NewWriter(tarIn)
+		tarDiscardWriter := tar.NewWriter(ioutil.Discard)
+		defer reader.Close()
+		defer tarIn.Close()
+		defer gZipReader.Close()
+		defer tarDiscardWriter.Close()
+		defer tarWriter.Close()
+
+		// grab tar stream from guest tools. zip it up if there are no errors
+		for {
+			hdr, err := tarReader.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				op.Errorf("Error in unziptar: %s", err.Error())
+				tarIn.CloseWithError(err)
+				return
+			}
+
+			writer := tarWriter
+			path := path.Join(path.Dir(includePath), hdr.Name)
+			if excluded := spec.Excludes(op, path); excluded {
+				op.Debugf("Getting exclusion for: %s --- %t", path, excluded)
+				writer = tarDiscardWriter
+			}
+
+			op.Debugf("read/write header: %#v", *hdr)
+			if err = writer.WriteHeader(hdr); err != nil {
+				op.Errorf("Error in unziptar: %s", err.Error())
+				tarIn.CloseWithError(err)
+				return
+			}
+
+			if !data {
+				writer = tarDiscardWriter
+			}
+
+			op.Debugf("read/write body")
+			if _, err := io.Copy(writer, tarReader); err != nil {
+				op.Errorf("Error in unziptar: %s", err.Error())
+				tarIn.CloseWithError(err)
+				return
+			}
+
+		}
+
+		op.Debugf("return")
+	}()
+
+	return tarOut
+}
+
+// func (t *ToolboxDataSource) createTarFromFile(op trace.Operation, reader io.ReadCloser, spec *archive.FilterSpec, path string, size int64) (io.ReadCloser, error) {
+// 	stat, err := t.StatPath(op, spec)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	if types.GuestFileType(stat.Type) != types.GuestFileTypeFile {
+// 		return reader, nil
+// 	}
+
+// 	tarOut, tarIn := io.Pipe()
+// 	go func() {
+// 		gZipWriter := gzip.NewWriter(tarIn)
+// 		tarWriter := tar.NewWriter(gZipWriter)
+// 		defer reader.Close()
+// 		defer tarIn.Close()
+// 		defer gZipWriter.Close()
+// 		defer tarWriter.Close()
+
+// 		hdr := &tar.Header{
+// 			Name:    filepath.Base(stat.Path),
+// 			Size:    size,
+// 			ModTime: *stat.Attributes.GetGuestFileAttributes().ModificationTime,
+// 		}
+// 		switch types.GuestFileType(stat.Type) {
+// 		case types.GuestFileTypeDirectory:
+// 			hdr.Mode = int64(os.ModeDir)
+// 		case types.GuestFileTypeSymlink:
+// 			hdr.Mode = int64(os.ModeSymlink)
+// 		default:
+// 			hdr.Mode = int64(0600)
+// 		}
+
+// 		op.Debugf("Write Header: %v", *hdr)
+// 		if err = tarWriter.WriteHeader(hdr); err != nil {
+// 			tarIn.CloseWithError(err)
+// 			return
+// 		}
+
+// 		op.Debugf("Write Body: %d", size)
+// 		// write file content body
+// 		if _, err := io.CopyN(tarWriter, reader, size); err != nil {
+// 			tarIn.CloseWithError(err)
+// 			return
+// 		}
+
+// 		op.Debugf("Return")
+// 	}()
+
+// 	return tarOut, nil
+// }

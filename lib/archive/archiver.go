@@ -22,8 +22,6 @@ import (
 	"net/url"
 	"strings"
 
-	"path/filepath"
-
 	"github.com/vmware/vic/pkg/trace"
 )
 
@@ -122,8 +120,8 @@ func DecodeFilterSpec(op trace.Operation, spec string) (*FilterSpec, error) {
 	var filterSpec FilterSpec
 
 	// empty spec means don't apply any filtering
-	if spec != nil && len(*spec) > 0 {
-		decoded, err := base64.StdEncoding.DecodeString(*spec)
+	if len(spec) > 0 {
+		decoded, err := base64.StdEncoding.DecodeString(spec)
 		if err != nil {
 			op.Errorf("Unable to decode filter spec: %s", err)
 			return nil, err
@@ -152,7 +150,7 @@ func DecodeFilterSpec(op trace.Operation, spec string) (*FilterSpec, error) {
 }
 
 // Encode the filter spec
-func EncodeFilterSpec(op trace.Operation, spec *FilterSpec) (string, error) {
+func EncodeFilterSpec(op trace.Operation, spec *FilterSpec) (*string, error) {
 	mashalled, err := json.Marshal(spec)
 	if err != nil {
 		op.Errorf("Unable to encode filter spec: %s", err)
@@ -204,15 +202,4 @@ func (spec *FilterSpec) Excludes(op trace.Operation, filePath string) bool {
 	}
 
 	return len(inclusion) < len(exclusion)
-}
-
-func ResolveImportPath(fs *FilterSpec) []string {
-	// this avoids the case when stripPath is root and resolvedPath would have been '//<rebasepath>'
-	var resolvedPaths []string
-	for path := range fs.Inclusions {
-		rebasePath := strings.TrimSuffix(fs.RebasePath, "/")
-		resolvedPath := rebasePath + string(filepath.Separator) + path
-		resolvedPaths = append(resolvedPaths, resolvedPath)
-	}
-	return resolvedPaths
 }
