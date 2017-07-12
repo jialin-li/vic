@@ -17,18 +17,22 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/go-openapi/runtime/middleware"
 
+	"github.com/vmware/govmomi/vim25/types"
+
 	"github.com/vmware/vic/lib/apiservers/portlayer/models"
 	"github.com/vmware/vic/lib/apiservers/portlayer/restapi/operations"
 	"github.com/vmware/vic/lib/apiservers/portlayer/restapi/operations/storage"
-	vicarchive "github.com/vmware/vic/lib/archive"
+	"github.com/vmware/vic/lib/archive"
 	epl "github.com/vmware/vic/lib/portlayer/exec"
 	spl "github.com/vmware/vic/lib/portlayer/storage"
 	"github.com/vmware/vic/lib/portlayer/storage/nfs"
@@ -36,6 +40,7 @@ import (
 	"github.com/vmware/vic/lib/portlayer/util"
 	"github.com/vmware/vic/pkg/trace"
 	"github.com/vmware/vic/pkg/vsphere/datastore"
+	"github.com/vmware/vic/lib/install/data"
 )
 
 // StorageHandlersImpl is the receiver for all of the storage handler methods
@@ -111,6 +116,7 @@ func (h *StorageHandlersImpl) Configure(api *operations.PortLayerAPI, handlerCtx
 
 	api.StorageExportArchiveHandler = storage.ExportArchiveHandlerFunc(h.ExportArchive)
 	api.StorageImportArchiveHandler = storage.ImportArchiveHandlerFunc(h.ImportArchive)
+	api.StorageStatPathHandler = storage.StatPathHandlerFunc(h.StatPath)
 }
 
 func (h *StorageHandlersImpl) configureVolumeStores(op trace.Operation, handlerCtx *HandlerContext) {
@@ -546,7 +552,7 @@ func (h *StorageHandlersImpl) ImportArchive(params storage.ImportArchiveParams) 
 	id := params.DeviceID
 	op := trace.NewOperation(context.Background(), "ImportArchive: %s", id)
 
-	filterSpec, err := vicarchive.DecodeFilterSpec(op, params.FilterSpec)
+	filterSpec, err := archive.DecodeFilterSpec(op, params.FilterSpec)
 	if err != nil {
 		// hickeng: should be a 422 instead of 500
 		return storage.NewImportArchiveInternalServerError()
@@ -581,7 +587,7 @@ func (h *StorageHandlersImpl) ExportArchive(params storage.ExportArchiveParams) 
 
 	op := trace.NewOperation(context.Background(), "ExportArchive: %s:%s", id, ancestor)
 
-	filterSpec, err := vicarchive.DecodeFilterSpec(op, params.FilterSpec)
+	filterSpec, err := archive.DecodeFilterSpec(op, params.FilterSpec)
 	if err != nil {
 		// hickeng: should be a 422 instead of 500
 		return storage.NewExportArchiveInternalServerError()
@@ -604,8 +610,98 @@ func (h *StorageHandlersImpl) ExportArchive(params storage.ExportArchiveParams) 
 
 	return NewStreamOutputHandler("ExportArchive").WithPayload(NewFlushingReader(r), params.DeviceID, func() { r.Close() })
 }
+func (h *StorageHandlersImpl) StatPath(params storage.StatPathParams) middleware.Responder {
+	defer trace.End(trace.Begin(""))
+	op := trace.NewOperation(context.Background(), "StatPath: %s", params.DeviceID)
+
+	// filterspec is required for statpath so it's a string
+	filterSpec, err := archive.DecodeFilterSpec(op, &params.FilterSpec)
+	if err != nil {
+		return storage.NewExportArchiveInternalServerError()
+	}
+
+	store, ok := spl.GetExporter(params.Store)
+	if !ok {
+		op.Errorf("Failed to locate export capable store %s", params.Store)
+		op.Debugf("Available exporters are: %+q", spl.GetExporters())
+		return storage.NewStatPathNotFound()
+	}
+
+	dataSource, err := store.NewDataSource(op, params.DeviceID)
+	if err != nil {
+		op.Errorf("Failed to locate data source %s for %s", params.DeviceID, err.Error())
+		return storage.NewStatPathNotFound()
+	}
+
+	fileStat, err := dataSource.Stat(op, filterSpec)
+	if err != nil {
+		op.Errorf("Failed to stat data source %s for %s", params.DeviceID, err.Error())
+		return storage.NewStatPathNotFound()
+	}
+
+	modTimeBytes, err := fileStat.ModTime.GobEncode()
+	if err != nil {
+		op.Debugf("error getting mod time from statpath: %s", err.Error())
+		return storage.NewStatPathNotFound()
+	}
+
+	return storage.
+	NewStatPathOK().
+		WithMode(fileStat.Mode).
+		WithLinkTarget(fileStat.LinkTarget).
+		WithName(fileStat.Name).
+		WithSize(fileStat.Size).
+		WithModTime(string(modTimeBytes))
+
+}
 
 //utility functions
+
+func preformOnlineStatPath(op trace.Operation, params storage.StatPathParams, fs *archive.FilterSpec) middleware.Responder {
+	vc := epl.Containers.Container(params.DeviceID)
+	if vc == nil {
+		return storage.NewStatPathNotFound()
+	}
+
+	paths := archive.ResolveImportPath(fs)
+	if len(paths) != 1 {
+		op.Errorf("incorrect number of paths to stat: %s. --- %d != 1", params.DeviceID, len(paths))
+		return storage.NewStatPathInternalServerError()
+	}
+
+	file, err := splc.StatPath(op, vc, paths[0])
+	if err != nil {
+		op.Errorf("error getting stat from device %s: %s", params.DeviceID, err.Error())
+		return storage.NewStatPathInternalServerError()
+	}
+
+	var mode uint32
+	switch types.GuestFileType(file.Type) {
+	case types.GuestFileTypeDirectory:
+		mode = uint32(os.ModeDir)
+	case types.GuestFileTypeSymlink:
+		mode = uint32(os.ModeSymlink)
+	default:
+		mode = uint32(os.FileMode(uint32(0600)))
+	}
+
+	ok := storage.
+	NewStatPathOK().
+		WithMode(mode).
+		WithLinkTarget(file.Attributes.GetGuestFileAttributes().SymlinkTarget).
+		WithName(filepath.Base(file.Path)).
+		WithSize(file.Size)
+
+	// add mod time bytes
+	modTimeBytes, err := file.Attributes.GetGuestFileAttributes().ModificationTime.GobEncode()
+	if err != nil {
+		op.Debugf("error getting mod time from statpath: %s", err.Error())
+	} else {
+		ok.ModTime = string(modTimeBytes)
+	}
+
+	return ok
+}
 
 // convert an SPL Image to a swagger-defined Image
 func convertImage(image *spl.Image) *models.Image {

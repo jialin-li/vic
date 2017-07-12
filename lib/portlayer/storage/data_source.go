@@ -21,6 +21,7 @@ import (
 
 	"github.com/vmware/vic/lib/archive"
 	"github.com/vmware/vic/pkg/trace"
+	"path/filepath"
 )
 
 // MountDataSource implements the DataSource interface for mounted devices
@@ -47,6 +48,28 @@ func (m *MountDataSource) Export(op trace.Operation, spec *archive.FilterSpec, d
 
 	// NOTE: this isn't actually diffing - it's just creating a tar. @jzt to explain why
 	return archive.Diff(op, m.Path.Name(), "", spec, data)
+}
+
+// Export reads data from the associated data source and returns it as a tar archive
+func (m *MountDataSource) Stat(op trace.Operation, spec *archive.FilterSpec) (*FileStat, error){
+	filePath := filepath.Join(m.Path.Name(), spec.RebasePath)
+	fileInfo, err := os.Lstat(filePath)
+	if err != nil {
+		op.Errorf("failed to stat file")
+		return nil, err
+	}
+
+	var linkTarget string
+	// check for symlink
+	if fileInfo.Mode() & os.ModeSymlink != 0 {
+		linkTarget, err = os.Readlink(filePath)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	defer m.Close()
+	return &FileStat{linkTarget, uint32(fileInfo.Mode()), fileInfo.Name(), fileInfo.Size(), fileInfo.ModTime()}, nil
 }
 
 func (m *MountDataSource) Close() error {

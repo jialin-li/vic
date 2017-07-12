@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/url"
 	"sync"
+	"time"
 
 	log "github.com/Sirupsen/logrus"
 
@@ -38,6 +39,14 @@ var (
 	importers map[string]Importer
 	exporters map[string]Exporter
 )
+
+type FileStat struct {
+	LinkTarget string
+	Mode       uint32
+	Name       string
+	Size       int64
+	ModTime	   time.Time
+}
 
 func create(ctx context.Context, session *session.Session, pool *object.ResourcePool) error {
 	var err error
@@ -131,6 +140,9 @@ type DataSource interface {
 	//     nfs volume:  XDR-client
 	//     via guesttools:  tar stream
 	Source() interface{}
+
+	// Given a filter spec
+	Stat(op trace.Operation, spec *archive.FilterSpec) (*FileStat, error)
 }
 
 type DataSink interface {
