@@ -52,6 +52,8 @@ func (m *MountDataSource) Export(op trace.Operation, spec *archive.FilterSpec, d
 
 // Export reads data from the associated data source and returns it as a tar archive
 func (m *MountDataSource) Stat(op trace.Operation, spec *archive.FilterSpec) (*FileStat, error){
+	defer m.Close()
+
 	filePath := filepath.Join(m.Path.Name(), spec.RebasePath)
 	fileInfo, err := os.Lstat(filePath)
 	if err != nil {
@@ -67,8 +69,6 @@ func (m *MountDataSource) Stat(op trace.Operation, spec *archive.FilterSpec) (*F
 			return nil, err
 		}
 	}
-
-	defer m.Close()
 	return &FileStat{linkTarget, uint32(fileInfo.Mode()), fileInfo.Name(), fileInfo.Size(), fileInfo.ModTime()}, nil
 }
 

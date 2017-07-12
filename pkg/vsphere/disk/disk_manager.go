@@ -539,7 +539,7 @@ func (m *Manager) InUse(op trace.Operation, config *VirtualDiskConfig, filter fu
 		mo := mos[i]
 		op.Debugf("Working on vm %q", mo.Name)
 
-		if filter(&mo) {
+		if !filter(&mo) {
 			op.Debugf("Filtering out vm %q", mo.Name)
 			continue
 		}
@@ -608,7 +608,7 @@ func (m *Manager) DiskFinder(op trace.Operation, filter func(p string) bool) (st
 				diskPath := t.GetVirtualDeviceFileBackingInfo().FileName
 				op.Infof("Disk path: %s", diskPath)
 				if filter(diskPath) {
-					op.Debugf("Match found. Returning filepath %s", diskPath)
+					op.Debugf("Match found. Returning filepath %s, vm power state is %v \n", diskPath, mo.Runtime.PowerState == types.VirtualMachinePowerStatePoweredOn)
 					return diskPath, nil
 				}
 			default:

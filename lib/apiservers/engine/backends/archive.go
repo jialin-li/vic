@@ -638,7 +638,13 @@ func resolvePathWithMountPoints(mounts []types.MountPoint, path, defaultDevice s
 	mntpoint := ""
 
 	// trim / off from path and then append / to ensure the format is correct
-	path = "/" + strings.TrimPrefix(strings.TrimSuffix(path, "/"), "/")
+	for strings.HasPrefix(path, "/") {
+		path = strings.TrimPrefix(path, "/")
+	}
+	for strings.HasSuffix(path, "/") {
+		path = strings.TrimSuffix(path, "/")
+	}
+	path = "/" + path
 
 	for _, mount := range mounts {
 		if strings.HasPrefix(path, mount.Destination) {
@@ -654,9 +660,8 @@ func resolvePathWithMountPoints(mounts []types.MountPoint, path, defaultDevice s
 	fs.RebasePath = mntpoint
 	fs.Inclusions = make(map[string]struct{})
 	fs.Exclusions = make(map[string]struct{})
-	excludedPath := strings.TrimSuffix(path, "/")
-	includedPath := strings.TrimPrefix(excludedPath, mntpoint)
-	excludedPath = excludedPath + "/"
+	includedPath := strings.TrimPrefix(path, mntpoint)
+	excludedPath := path + "/"
 	fs.Inclusions[includedPath] = struct{}{}
 	fs.Exclusions[excludedPath] = struct{}{}
 
