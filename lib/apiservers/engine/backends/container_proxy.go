@@ -770,14 +770,6 @@ func (c *ContainerProxy) ArchiveImportWriter(op trace.Operation, store, deviceID
 
 	pipeReader, pipeWriter := io.Pipe()
 
-	go func() {
-		// Write the init string to "wakeup" swagger on the portlayer side.  Must do
-		// it in a goroutine because pipeWriter.Write() will block till data is read
-		// off.
-		op.Debugf("writing primer bytes for ImportStream for ArchiveImportWriter")
-		pipeWriter.Write([]byte(attachStdinInitString))
-	}()
-
 	done := make(chan struct{})
 	go func() {
 		// make sure we get out of io.Copy if context is canceled

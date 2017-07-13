@@ -119,7 +119,6 @@ func (c *ContainerStore) NewDataSource(op trace.Operation, id string) (storage.D
 
 	// TODO(jzt): tweak this when online export is available
 	for _, o := range owners {
-		// o is a VM
 		a, err := c.newOnlineDataSource(op, o, id)
 		if err != nil {
 			return nil, err

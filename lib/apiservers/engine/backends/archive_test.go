@@ -106,22 +106,22 @@ func TestFindArchiveReaders(t *testing.T) {
 			containerSourcePath: "/",
 			expectedPrefices:    []string{"/", "/mnt/A", "/mnt/B", "/mnt/A/AB"},
 			expectedFilterSpecs: map[string]ReaderFilters{
-				"/": ReaderFilters{
+				"/": {
 					rebase:  "",
 					exclude: []string{"/mnt/A", "/mnt/B", "/mnt/A/AB"},
 					include: "",
 				},
-				"/mnt/A": ReaderFilters{
+				"/mnt/A": {
 					rebase:  "/mnt/A",
 					exclude: []string{"/mnt/A/AB"},
 					include: "",
 				},
-				"/mnt/B": ReaderFilters{
+				"/mnt/B": {
 					rebase:  "/mnt/B",
 					exclude: []string{},
 					include: "",
 				},
-				"/mnt/A/AB": ReaderFilters{
+				"/mnt/A/AB": {
 					rebase:  "/mnt/A/AB",
 					exclude: []string{},
 					include: "",
@@ -132,22 +132,22 @@ func TestFindArchiveReaders(t *testing.T) {
 			containerSourcePath: "/mnt",
 			expectedPrefices:    []string{"/", "/mnt/A", "/mnt/B", "/mnt/A/AB"},
 			expectedFilterSpecs: map[string]ReaderFilters{
-				"/": ReaderFilters{
+				"/": {
 					rebase:  "",
 					exclude: []string{"/mnt/A", "/mnt/B", "/mnt/A/AB"},
 					include: "",
 				},
-				"/mnt/A": ReaderFilters{
+				"/mnt/A": {
 					rebase:  "/mnt/A",
 					exclude: []string{"/mnt/A/AB"},
 					include: "",
 				},
-				"/mnt/B": ReaderFilters{
+				"/mnt/B": {
 					rebase:  "/mnt/B",
 					exclude: []string{},
 					include: "",
 				},
-				"/mnt/A/AB": ReaderFilters{
+				"/mnt/A/AB": {
 					rebase:  "/mnt/A/AB",
 					exclude: []string{},
 					include: "",
@@ -158,22 +158,22 @@ func TestFindArchiveReaders(t *testing.T) {
 			containerSourcePath: "/mnt/",
 			expectedPrefices:    []string{"/", "/mnt/A", "/mnt/B", "/mnt/A/AB"},
 			expectedFilterSpecs: map[string]ReaderFilters{
-				"/": ReaderFilters{
+				"/": {
 					rebase:  "",
 					exclude: []string{"/mnt/A", "/mnt/B", "/mnt/A/AB"},
 					include: "",
 				},
-				"/mnt/A": ReaderFilters{
+				"/mnt/A": {
 					rebase:  "/mnt/A",
 					exclude: []string{"/mnt/A/AB"},
 					include: "",
 				},
-				"/mnt/B": ReaderFilters{
+				"/mnt/B": {
 					rebase:  "/mnt/B",
 					exclude: []string{},
 					include: "",
 				},
-				"/mnt/A/AB": ReaderFilters{
+				"/mnt/A/AB": {
 					rebase:  "/mnt/A/AB",
 					exclude: []string{},
 					include: "",
@@ -185,11 +185,11 @@ func TestFindArchiveReaders(t *testing.T) {
 			containerSourcePath: "/mnt/A",
 			expectedPrefices:    []string{"/mnt/A", "/mnt/A/AB"},
 			expectedFilterSpecs: map[string]ReaderFilters{
-				"/mnt/A": ReaderFilters{
+				"/mnt/A": {
 					rebase:  "/mnt/A",
 					exclude: []string{"/mnt/A/AB"},
 				},
-				"/mnt/A/AB": ReaderFilters{
+				"/mnt/A/AB": {
 					rebase:  "/mnt/A/AB",
 					exclude: []string{},
 					include: "",
@@ -201,7 +201,7 @@ func TestFindArchiveReaders(t *testing.T) {
 			containerSourcePath: "/mnt/not-a-mount",
 			expectedPrefices:    []string{"/"},
 			expectedFilterSpecs: map[string]ReaderFilters{
-				"/": ReaderFilters{
+				"/": {
 					rebase:  "",
 					exclude: []string{"/mnt/A", "/mnt/B", "/mnt/A/AB"},
 					include: "mnt/not-a-mount",
@@ -212,7 +212,7 @@ func TestFindArchiveReaders(t *testing.T) {
 			containerSourcePath: "/etc/",
 			expectedPrefices:    []string{"/"},
 			expectedFilterSpecs: map[string]ReaderFilters{
-				"/": ReaderFilters{
+				"/": {
 					rebase:  "",
 					exclude: []string{"/mnt/A", "/mnt/B", "/mnt/A/AB"},
 					include: "etc/",
@@ -224,7 +224,7 @@ func TestFindArchiveReaders(t *testing.T) {
 			containerSourcePath: "/mnt/A/a/file.txt",
 			expectedPrefices:    []string{"/mnt/A"},
 			expectedFilterSpecs: map[string]ReaderFilters{
-				"/mnt/A": ReaderFilters{
+				"/mnt/A": {
 					rebase:  "/mnt/A",
 					exclude: []string{"/mnt/A/AB"},
 					include: "a/file.txt",

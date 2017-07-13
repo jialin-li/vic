@@ -149,7 +149,7 @@ func DecodeFilterSpec(op trace.Operation, spec string) (*FilterSpec, error) {
 	return &filterSpec, nil
 }
 
-// Encode the filter spec
+// EncodeFilterSpec encodes the filter spec as a json unmarshalled base64 string
 func EncodeFilterSpec(op trace.Operation, spec *FilterSpec) (*string, error) {
 	mashalled, err := json.Marshal(spec)
 	if err != nil {
@@ -158,7 +158,7 @@ func EncodeFilterSpec(op trace.Operation, spec *FilterSpec) (*string, error) {
 	}
 
 	encoded := base64.StdEncoding.EncodeToString(mashalled)
-	op.Debugf("encodedFilter = %s", encoded)
+	op.Debugf("encodedFilter = %s -- %#v", encoded, spec)
 
 	return &encoded, nil
 }

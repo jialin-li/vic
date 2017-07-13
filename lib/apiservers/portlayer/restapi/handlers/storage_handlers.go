@@ -564,6 +564,7 @@ func (h *StorageHandlersImpl) ImportArchive(params storage.ImportArchiveParams) 
 	err = store.Import(op, id, filterSpec, params.Archive)
 	if err != nil {
 		// hickeng: see if we can return usefully typed errors here
+		op.Errorf("ExportArchiveInternalServerError: %s", err.Error())
 		return storage.NewExportArchiveInternalServerError()
 	}
 
@@ -599,6 +600,7 @@ func (h *StorageHandlersImpl) ExportArchive(params storage.ExportArchiveParams) 
 	r, err := store.Export(op, id, ancestor, filterSpec, params.Data)
 	if err != nil {
 		// hickeng: we're in need of typed errors - should check for id not found for 404 return
+		op.Errorf("ExportArchiveInternalServerError: %s", err.Error())
 		return storage.NewExportArchiveInternalServerError()
 	}
 

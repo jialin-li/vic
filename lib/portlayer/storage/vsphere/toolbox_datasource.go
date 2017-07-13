@@ -16,11 +16,9 @@ package vsphere
 
 import (
 	"archive/tar"
-	"compress/gzip"
 	"fmt"
 	"io"
 	"io/ioutil"
-	"path"
 
 	"github.com/vmware/govmomi/guest"
 	"github.com/vmware/govmomi/vim25/soap"
@@ -49,8 +47,10 @@ func (t *ToolboxDataSource) Export(op trace.Operation, spec *archive.FilterSpec,
 
 	// set up file manager
 	client := t.VM.Session.Client.Client
+
 	filemgr, err := guest.NewOperationsManager(client, t.VM.Reference()).FileManager(op)
 	if err != nil {
+		op.Errorf("AUTH ERR: %s", err.Error())
 		return nil, err
 	}
 
@@ -59,16 +59,19 @@ func (t *ToolboxDataSource) Export(op trace.Operation, spec *archive.FilterSpec,
 	}
 
 	var readers []io.Reader
+	// filterspec inclusion paths should be absolute to the container root
 	for path := range spec.Inclusions {
 		op.Debugf("path: %s", path)
 		// authenticate client and parse container host/port.
 		guestInfo, err := filemgr.InitiateFileTransferFromGuest(op, &auth, path)
 		if err != nil {
+			op.Errorf("INIT ERR: %s", err.Error())
 			return nil, err
 		}
 
-		url, err := client.ParseURL(guestInfo.Url)
+		url, err := ParseArchiveUrl(op, client, guestInfo.Url, spec)
 		if err != nil {
+			op.Errorf("PARSE ERR: %s", err.Error())
 			return nil, err
 		}
 
@@ -78,10 +81,11 @@ func (t *ToolboxDataSource) Export(op trace.Operation, spec *archive.FilterSpec,
 		params := soap.DefaultDownload
 		rc, _, err := client.Download(url, &params)
 		if err != nil {
+			op.Errorf("DOWNLOAD ERR: %s", err.Error())
 			return nil, err
 		}
 
-		readers = append(readers, t.unZipAndExcldueTar(op, rc, spec, path, data))
+		readers = append(readers, rc)
 
 	}
 
@@ -93,10 +97,11 @@ func (t *ToolboxDataSource) Stat(op trace.Operation, spec *archive.FilterSpec) (
 	defer trace.End(trace.Begin(""))
 
 	statTar, err := t.Export(op, spec, false)
-	defer statTar.Close()
 	if err != nil {
+		op.Errorf(err.Error())
 		return nil, err
 	}
+	defer statTar.Close()
 
 	tarReader := tar.NewReader(statTar)
 	header, err := tarReader.Next()
@@ -123,123 +128,3 @@ func (t *ToolboxDataSource) Close() error {
 
 	return nil
 }
-
-//----------
-// Utility Functions
-//----------
-
-func (t *ToolboxDataSource) unZipAndExcldueTar(op trace.Operation, reader io.ReadCloser, spec *archive.FilterSpec, includePath string, data bool) io.ReadCloser {
-	// create a writer for gzip compressiona nd a tar archive
-	tarOut, tarIn := io.Pipe()
-	go func() {
-		gZipReader, err := gzip.NewReader(reader)
-		if err != nil {
-			op.Errorf("Error in unziptar: %s", err.Error())
-			tarIn.CloseWithError(err)
-			return
-		}
-		tarReader := tar.NewReader(gZipReader)
-		tarWriter := tar.NewWriter(tarIn)
-		tarDiscardWriter := tar.NewWriter(ioutil.Discard)
-		defer reader.Close()
-		defer tarIn.Close()
-		defer gZipReader.Close()
-		defer tarDiscardWriter.Close()
-		defer tarWriter.Close()
-
-		// grab tar stream from guest tools. zip it up if there are no errors
-		for {
-			hdr, err := tarReader.Next()
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				op.Errorf("Error in unziptar: %s", err.Error())
-				tarIn.CloseWithError(err)
-				return
-			}
-
-			writer := tarWriter
-			path := path.Join(path.Dir(includePath), hdr.Name)
-			if excluded := spec.Excludes(op, path); excluded {
-				op.Debugf("Getting exclusion for: %s --- %t", path, excluded)
-				writer = tarDiscardWriter
-			}
-
-			op.Debugf("read/write header: %#v", *hdr)
-			if err = writer.WriteHeader(hdr); err != nil {
-				op.Errorf("Error in unziptar: %s", err.Error())
-				tarIn.CloseWithError(err)
-				return
-			}
-
-			if !data {
-				writer = tarDiscardWriter
-			}
-
-			op.Debugf("read/write body")
-			if _, err := io.Copy(writer, tarReader); err != nil {
-				op.Errorf("Error in unziptar: %s", err.Error())
-				tarIn.CloseWithError(err)
-				return
-			}
-
-		}
-
-		op.Debugf("return")
-	}()
-
-	return tarOut
-}
-
-// func (t *ToolboxDataSource) createTarFromFile(op trace.Operation, reader io.ReadCloser, spec *archive.FilterSpec, path string, size int64) (io.ReadCloser, error) {
-// 	stat, err := t.StatPath(op, spec)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	if types.GuestFileType(stat.Type) != types.GuestFileTypeFile {
-// 		return reader, nil
-// 	}
-
-// 	tarOut, tarIn := io.Pipe()
-// 	go func() {
-// 		gZipWriter := gzip.NewWriter(tarIn)
-// 		tarWriter := tar.NewWriter(gZipWriter)
-// 		defer reader.Close()
-// 		defer tarIn.Close()
-// 		defer gZipWriter.Close()
-// 		defer tarWriter.Close()
-
-// 		hdr := &tar.Header{
-// 			Name:    filepath.Base(stat.Path),
-// 			Size:    size,
-// 			ModTime: *stat.Attributes.GetGuestFileAttributes().ModificationTime,
-// 		}
-// 		switch types.GuestFileType(stat.Type) {
-// 		case types.GuestFileTypeDirectory:
-// 			hdr.Mode = int64(os.ModeDir)
-// 		case types.GuestFileTypeSymlink:
-// 			hdr.Mode = int64(os.ModeSymlink)
-// 		default:
-// 			hdr.Mode = int64(0600)
-// 		}
-
-// 		op.Debugf("Write Header: %v", *hdr)
-// 		if err = tarWriter.WriteHeader(hdr); err != nil {
-// 			tarIn.CloseWithError(err)
-// 			return
-// 		}
-
-// 		op.Debugf("Write Body: %d", size)
-// 		// write file content body
-// 		if _, err := io.CopyN(tarWriter, reader, size); err != nil {
-// 			tarIn.CloseWithError(err)
-// 			return
-// 		}
-
-// 		op.Debugf("Return")
-// 	}()
-
-// 	return tarOut, nil
-// }

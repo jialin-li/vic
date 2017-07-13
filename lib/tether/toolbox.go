@@ -27,6 +27,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/vmware/govmomi/toolbox"
+	"github.com/vmware/govmomi/toolbox/hgfs"
 	"github.com/vmware/govmomi/toolbox/vix"
 	"github.com/vmware/vic/cmd/tether/msgs"
 )
@@ -53,6 +54,9 @@ func NewToolbox() *Toolbox {
 
 	service := toolbox.NewService(in, out)
 	service.PrimaryIP = toolbox.DefaultIP
+
+	hgfs.Trace = true
+	toolbox.Trace = true
 
 	return &Toolbox{
 		Service: service,
@@ -125,6 +129,11 @@ func (t *Toolbox) InContainer() *Toolbox {
 	cmd := t.Service.Command
 	cmd.Authenticate = t.containerAuthenticate
 	cmd.ProcessStartCommand = t.containerStartCommand
+
+	// cmd.FileServer.RegisterFileHandler(hgfs.ArchiveScheme, &hgfs.ArchiveHandler{
+	// 	Read:  vsphere.ToolboxOverrideArchiveHandler.Read,
+	// 	Write: vsphere.ToolboxOverrideArchiveHandler.Write,
+	// })
 
 	return t
 }
