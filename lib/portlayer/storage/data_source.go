@@ -54,7 +54,18 @@ func (m *MountDataSource) Export(op trace.Operation, spec *archive.FilterSpec, d
 func (m *MountDataSource) Stat(op trace.Operation, spec *archive.FilterSpec) (*FileStat, error){
 	defer m.Close()
 
-	filePath := filepath.Join(m.Path.Name(), spec.RebasePath)
+	// retrieve relative path
+	if len(spec.Inclusions) != 1 {
+		op.Errorf("incorrect number of paths to stat --- ", len(spec.Inclusions))
+		return nil, errors.New("Incorrect number of paths to stat")
+	}
+
+	var targetPath string
+	for path := range spec.Inclusions {
+		targetPath = path
+	}
+
+	filePath := filepath.Join(m.Path.Name(), targetPath)
 	fileInfo, err := os.Lstat(filePath)
 	if err != nil {
 		op.Errorf("failed to stat file")
@@ -69,7 +80,14 @@ func (m *MountDataSource) Stat(op trace.Operation, spec *archive.FilterSpec) (*F
 			return nil, err
 		}
 	}
-	return &FileStat{linkTarget, uint32(fileInfo.Mode()), fileInfo.Name(), fileInfo.Size(), fileInfo.ModTime()}, nil
+
+	fileName := fileInfo.Name()
+	// handle root directory special case: don't want to return mntdir name
+	if targetPath == "/" && spec.RebasePath == "" {
+		fileName = "/"
+	}
+
+	return &FileStat{linkTarget, uint32(fileInfo.Mode()), fileName, fileInfo.Size(), fileInfo.ModTime()}, nil
 }
 
 func (m *MountDataSource) Close() error {
