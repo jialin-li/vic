@@ -614,34 +614,69 @@ func (h *StorageHandlersImpl) StatPath(params storage.StatPathParams) middleware
 
 	filterSpec, err := archive.DecodeFilterSpec(op, params.FilterSpec)
 	if err != nil {
-		return storage.NewStatPathInternalServerError()
+		return storage.
+		NewStatPathOK().
+			WithMode(1).
+			WithLinkTarget("decode filter spec").
+			WithName(err.Error()).
+			WithSize(1).
+			WithModTime("1")
 	}
 
 	store, ok := spl.GetExporter(params.Store)
 	if !ok {
 		op.Errorf("Failed to locate export capable store %s", params.Store)
 		op.Debugf("Available exporters are: %+q", spl.GetExporters())
-		return storage.NewStatPathNotFound()
+		//return storage.NewStatPathNotFound()
+		return storage.
+		NewStatPathOK().
+			WithMode(1).
+			WithLinkTarget("get exporter").
+			WithName(err.Error()).
+			WithSize(1).
+			WithModTime("1")
 	}
 
 	dataSource, err := store.NewDataSource(op, params.DeviceID)
 	if err != nil {
 		op.Errorf("Failed to locate data source %s for %s", params.DeviceID, err.Error())
-		return storage.NewStatPathNotFound()
+		//return storage.NewStatPathNotFound()
+		return storage.
+		NewStatPathOK().
+			WithMode(1).
+			WithLinkTarget("new datasource ").
+			WithName(err.Error()).
+			WithSize(1).
+			WithModTime("1")
 	}
 
 	fileStat, err := dataSource.Stat(op, filterSpec)
 	if err != nil {
 		op.Errorf("Failed to stat data source %s for %s", params.DeviceID, err.Error())
-		return storage.NewStatPathNotFound()
+		return storage.
+		NewStatPathOK().
+			WithMode(1).
+			WithLinkTarget("performing stat").
+			WithName(err.Error()).
+			WithSize(1).
+			WithModTime("1")
+		//return storage.NewStatPathNotFound()
 	}
 
 	modTimeBytes, err := fileStat.ModTime.GobEncode()
 	if err != nil {
 		op.Debugf("error getting mod time from statpath: %s", err.Error())
-		return storage.NewStatPathNotFound()
+		return storage.
+		NewStatPathOK().
+			WithMode(1).
+			WithLinkTarget("encode modtime").
+			WithName(err.Error()).
+			WithSize(1).
+			WithModTime("1")
+		//return storage.NewStatPathNotFound()
 	}
 
+	op.Debugf("found data successfully")
 	return storage.
 		NewStatPathOK().
 		WithMode(fileStat.Mode).

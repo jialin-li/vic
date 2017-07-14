@@ -70,19 +70,19 @@ func (v *VolumeStore) NewDataSource(op trace.Operation, id string) (storage.Data
 	// online - Owners() should filter out the appliance VM
 	owners, _ := v.Owners(op, uri, disk.LockedVMDKFilter)
 	if len(owners) == 0 {
-		return nil, errors.New("Unavailable")
+		return nil, errors.New("Unavailable no owner")
 	}
 
 	// TODO(jzt): tweak this when online export is available
 	for _, o := range owners {
 		// o is a VM
-		_, _ = v.newOnlineDataSource(op, o, id)
+		a, _ := v.newOnlineDataSource(op, o, id)
 		// if a != nil && a.available() {
-		// 	return a, nil
+		return a, nil
 		// }
 	}
 
-	return nil, errors.New("Unavailable")
+	return nil, errors.New("Unavailable failed to create datasource")
 }
 
 func (v *VolumeStore) newDataSource(op trace.Operation, url *url.URL) (storage.DataSource, error) {

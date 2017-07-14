@@ -95,6 +95,7 @@ func (c *ContainerStore) Owners(op trace.Operation, url *url.URL, filter func(vm
 
 // NewDataSource creates and returns an DataSource associated with container storage
 func (c *ContainerStore) NewDataSource(op trace.Operation, id string) (storage.DataSource, error) {
+	// url
 	uri, err := c.URL(op, id)
 	if err != nil {
 		return nil, err
@@ -114,19 +115,20 @@ func (c *ContainerStore) NewDataSource(op trace.Operation, id string) (storage.D
 	// online - Owners() should filter out the appliance VM
 	owners, _ := c.Owners(op, uri, disk.LockedVMDKFilter)
 	if len(owners) == 0 {
-		return nil, errors.New("Unavailable")
+		return nil, errors.New("Unavailable no owners")
 	}
 
 	// TODO(jzt): tweak this when online export is available
 	for _, o := range owners {
 		a, err := c.newOnlineDataSource(op, o, id)
 		if err != nil {
+			op.Debugf("Created online datasource!")
 			return nil, err
 		}
 		return a, nil
 	}
 
-	return nil, errors.New("Unavailable")
+	return nil, errors.New("Unavailable, failed to create new datasource")
 }
 
 func (c *ContainerStore) newDataSource(op trace.Operation, url *url.URL) (storage.DataSource, error) {

@@ -614,7 +614,7 @@ func (m *Manager) DiskFinder(op trace.Operation, filter func(p string) bool) (st
 				diskPath := t.GetVirtualDeviceFileBackingInfo().FileName
 				op.Infof("Disk path: %s", diskPath)
 				if filter(diskPath) {
-					op.Debugf("Match found. Returning filepath %s", diskPath)
+					op.Debugf("Match found. Returning filepath %s, vm power state is %v \n", diskPath, mo.Runtime.PowerState == types.VirtualMachinePowerStatePoweredOn)
 					return diskPath, nil
 				}
 			default:

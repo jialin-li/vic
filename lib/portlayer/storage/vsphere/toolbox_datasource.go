@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"path/filepath"
 
 	"github.com/vmware/govmomi/guest"
 	"github.com/vmware/govmomi/vim25/soap"
@@ -43,14 +44,14 @@ func (t *ToolboxDataSource) Source() interface{} {
 
 // Export reads data from the associated data source and returns it as a tar archive
 func (t *ToolboxDataSource) Export(op trace.Operation, spec *archive.FilterSpec, data bool) (io.ReadCloser, error) {
-	defer trace.End(trace.Begin(""))
+	defer trace.End(trace.Begin("toolbox export"))
 
 	// set up file manager
 	client := t.VM.Session.Client.Client
 
 	filemgr, err := guest.NewOperationsManager(client, t.VM.Reference()).FileManager(op)
 	if err != nil {
-		op.Errorf("AUTH ERR: %s", err.Error())
+		op.Debugf("Failed to create new op manager ")
 		return nil, err
 	}
 
@@ -61,17 +62,17 @@ func (t *ToolboxDataSource) Export(op trace.Operation, spec *archive.FilterSpec,
 	var readers []io.Reader
 	// filterspec inclusion paths should be absolute to the container root
 	for path := range spec.Inclusions {
-		op.Debugf("path: %s", path)
+		op.Debugf("path: %s", filepath.Join(spec.RebasePath, path))
 		// authenticate client and parse container host/port.
-		guestInfo, err := filemgr.InitiateFileTransferFromGuest(op, &auth, path)
+		guestInfo, err := filemgr.InitiateFileTransferFromGuest(op, &auth, filepath.Join(spec.RebasePath, path))
 		if err != nil {
-			op.Errorf("INIT ERR: %s", err.Error())
+			op.Debugf("Failed to initiate file transfer ")
 			return nil, err
 		}
 
 		url, err := ParseArchiveUrl(op, client, guestInfo.Url, spec)
 		if err != nil {
-			op.Errorf("PARSE ERR: %s", err.Error())
+			op.Debugf("Failed to parse url ")
 			return nil, err
 		}
 
@@ -81,7 +82,7 @@ func (t *ToolboxDataSource) Export(op trace.Operation, spec *archive.FilterSpec,
 		params := soap.DefaultDownload
 		rc, _, err := client.Download(url, &params)
 		if err != nil {
-			op.Errorf("DOWNLOAD ERR: %s", err.Error())
+			op.Debugf("Failed to download ")
 			return nil, err
 		}
 
