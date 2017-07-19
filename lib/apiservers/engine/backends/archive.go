@@ -20,21 +20,27 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"os"
 	"path"
 	"strings"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/tchap/go-patricia/patricia"
 
+
 	"github.com/vmware/vic/lib/apiservers/engine/backends/cache"
 	viccontainer "github.com/vmware/vic/lib/apiservers/engine/backends/container"
+	"github.com/vmware/vic/lib/apiservers/portlayer/client/storage"
 	vicarchive "github.com/vmware/vic/lib/archive"
 	"github.com/vmware/vic/lib/portlayer/constants"
 	"github.com/vmware/vic/pkg/trace"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/pkg/archive"
+)
+
+const (
+	containerStoreName = "container"
+	volumeStoreName    = "volume"
 )
 
 // ContainerArchivePath creates an archive of the filesystem resource at the
@@ -46,6 +52,12 @@ func (c *Container) ContainerArchivePath(name string, path string) (content io.R
 	vc := cache.ContainerCache().GetContainer(name)
 	if vc == nil {
 		return nil, nil, NotFoundError(name)
+	}
+
+	stat, err = c.ContainerStatPath(name, path)
+	if err != nil {
+		// error is wrapped in statpath already
+		return nil, nil, err
 	}
 
 	var reader io.ReadCloser
@@ -161,13 +173,32 @@ func (c *Container) importToContainer(vc *viccontainer.VicContainer, target stri
 
 // ContainerStatPath stats the filesystem resource at the specified path in the
 // container identified by the given name.
-func (c *Container) ContainerStatPath(name string, path string) (stat *types.ContainerPathStat, err error) {
-	defer trace.End(trace.Begin(fmt.Sprintf("** statpath, name=%s, path=%s", name, path)))
+func (c *Container) ContainerStatPath(name string, path string) (*types.ContainerPathStat, error) {
+	defer trace.End(trace.Begin(name))
+	op := trace.NewOperation(context.Background(), "ContainerStatPath: %s", name)
 
-	fakeStat := &types.ContainerPathStat{}
-	fakeStat.Mode = os.ModeDir
+	vc := cache.ContainerCache().GetContainer(name)
+	if vc == nil {
+		return nil, NotFoundError(name)
+	}
 
-	return fakeStat, nil
+	mounts := mountsFromContainer(vc)
+	// still need to work on this to do a filterspec instead
+	store, deviceID, fs := resolvePathWithMountPoints(mounts, path, vc.ContainerID)
+
+	stat, err := c.containerProxy.StatPath(op, store, deviceID, fs)
+	if err != nil {
+		op.Errorf("error getting statpath: %s", err.Error())
+		switch err := err.(type) {
+		case *storage.StatPathNotFound:
+			return nil, ResourceNotFoundError(vc.Name, "file or directory")
+		default:
+			return nil, InternalServerError(err.Error())
+		}
+	}
+
+	op.Debugf("online container stat path %#v", stat)
+	return stat, nil
 }
 
 //----------------------------------
@@ -641,4 +672,42 @@ func (rm *ArchiveStreamReaderMap) Close() {
 	}
 
 	rm.prefixTrie.Visit(closeStream)
+}
+
+// use mountpoints to strip the target to a relative path
+func resolvePathWithMountPoints(mounts []types.MountPoint, path, defaultDevice string) (string, string, vicarchive.FilterSpec) {
+	var fs vicarchive.FilterSpec
+	deviceID := defaultDevice
+	store := containerStoreName
+	mntpoint := ""
+
+	// trim / off from path and then append / to ensure the format is correct
+	for strings.HasPrefix(path, "/") {
+		path = strings.TrimPrefix(path, "/")
+	}
+	for strings.HasSuffix(path, "/") {
+		path = strings.TrimSuffix(path, "/")
+	}
+	path = "/" + path
+
+	for _, mount := range mounts {
+		if strings.HasPrefix(path, mount.Destination) {
+			if len(mount.Destination) != len(path) &&
+				(mntpoint == "" || (len(mount.Destination) > len(mntpoint))) {
+				deviceID = mount.Name
+				mntpoint = mount.Destination
+				store = volumeStoreName
+			}
+		}
+	}
+
+	fs.RebasePath = mntpoint
+	fs.Inclusions = make(map[string]struct{})
+	fs.Exclusions = make(map[string]struct{})
+	includedPath := strings.TrimPrefix(path, mntpoint)
+	excludedPath := path + "/"
+	fs.Inclusions[includedPath] = struct{}{}
+	fs.Exclusions[excludedPath] = struct{}{}
+
+	return store, deviceID, fs
 }
