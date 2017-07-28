@@ -172,8 +172,8 @@ Copy a non-existent directory out of an online container
     Should Not Be Equal As Integers  ${rc}  0
     Should Contain  ${output}  Error
     ${rc}  ${output}=  Run And Return Rc And Output  docker %{VCH-PARAMS} rm -f online
-    Should Not Be Equal As Integers  ${rc}  0
-    Should Contain  ${output}  Error
+    Should Be Equal As Integers  ${rc}  0
+    Should Not Contain  ${output}  Error
 
 Concurrent copy: create processes to copy a small file from host to online container
     ${rc}  ${output}=  Run And Return Rc And Output  docker %{VCH-PARAMS} run --name concurrent -v v1:/vol1 -d -it ${busybox}

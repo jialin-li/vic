@@ -30,7 +30,6 @@ import (
 
 	"github.com/vmware/vic/lib/apiservers/engine/backends/cache"
 	viccontainer "github.com/vmware/vic/lib/apiservers/engine/backends/container"
-	"github.com/vmware/vic/lib/apiservers/portlayer/client/storage"
 	vicarchive "github.com/vmware/vic/lib/archive"
 	"github.com/vmware/vic/lib/portlayer/constants"
 	"github.com/vmware/vic/pkg/trace"
@@ -53,7 +52,7 @@ func (c *Container) ContainerArchivePath(name string, path string) (io.ReadClose
 
 	stat, err := c.ContainerStatPath(name, path)
 	if err != nil {
-		return nil, nil, InternalServerError(err.Error())
+		return nil, nil, err
 	}
 
 	reader, err := c.exportFromContainer(op, vc, path)
@@ -130,7 +129,7 @@ func (c *Container) ContainerExtractToDir(name, path string, noOverwriteDirNonDi
 	return err
 }
 
-func (c *Container) importToContainer(op trace.Operation, vc *viccontainer.VicContainer, target string, content io.Reader) error {
+func (c *Container) importToContainer(op trace.Operation, vc *viccontainer.VicContainer, target string, content io.Reader) (err error) {
 	rawReader, err := archive.DecompressStream(content)
 	if err != nil {
 		op.Errorf("Input tar stream to ContainerExtractToDir not recognized: %s", err.Error())
@@ -141,7 +140,14 @@ func (c *Container) importToContainer(op trace.Operation, vc *viccontainer.VicCo
 	mounts := mountsFromContainer(vc)
 	mounts = append(mounts, types.MountPoint{Destination: "/"})
 	writerMap := NewArchiveStreamWriterMap(op, mounts, target)
-	defer writerMap.Close() // This should shutdown all the stream connections to the portlayer.
+	defer func() {
+		// This should shutdown all the stream connections to the portlayer.
+		e1 := writerMap.Close(op)
+		if err == nil {
+			err = e1
+			op.Debugf("import to container: assigned err as %v", err)
+		}
+	}()
 
 	for {
 		header, err := tarReader.Next()
@@ -217,13 +223,7 @@ func (c *Container) ContainerStatPath(name string, path string) (stat *types.Con
 
 	stat, err = c.containerProxy.StatPath(op, store, deviceID, fs)
 	if err != nil {
-		op.Errorf("error getting statpath: %s", err.Error())
-		switch err := err.(type) {
-		case *storage.StatPathNotFound:
-			return nil, ResourceNotFoundError(vc.Name, "file or directory")
-		default:
-			return nil, InternalServerError(err.Error())
-		}
+		return nil, err
 	}
 
 	op.Debugf("container stat path %#v", stat)
@@ -255,6 +255,7 @@ type ArchiveWriter struct {
 type ArchiveStreamWriterMap struct {
 	prefixTrie *patricia.Trie
 	op         trace.Operation
+	errchan    chan error
 }
 
 // NewArchiveStreamWriterMap creates a new ArchiveStreamWriterMap.  The map contains all information
@@ -267,6 +268,7 @@ func NewArchiveStreamWriterMap(op trace.Operation, mounts []types.MountPoint, de
 	writerMap := &ArchiveStreamWriterMap{}
 	writerMap.prefixTrie = patricia.NewTrie()
 	writerMap.op = op
+	writerMap.errchan = make(chan error, len(mounts))
 
 	for _, m := range mounts {
 		aw := ArchiveWriter{
@@ -432,7 +434,7 @@ func (wm *ArchiveStreamWriterMap) WriterForAsset(proxy VicContainerProxy, cid, c
 			deviceID = aw.mountPoint.Name
 			store = constants.VolumeStoreName
 		}
-		rawWriter, err := proxy.ArchiveImportWriter(wm.op, store, deviceID, aw.filterSpec)
+		rawWriter, err := proxy.ArchiveImportWriter(wm.op, store, deviceID, aw.filterSpec, wm.errchan)
 		if err != nil {
 			err = fmt.Errorf("Unable to initialize import stream writer for mount prefix %s", aw.mountPoint.Destination)
 			wm.op.Errorf(err.Error())
@@ -446,20 +448,30 @@ func (wm *ArchiveStreamWriterMap) WriterForAsset(proxy VicContainerProxy, cid, c
 }
 
 // Close visits all the archive writer in the trie and closes the actual io.WritCloser
-func (wm *ArchiveStreamWriterMap) Close() {
+func (wm *ArchiveStreamWriterMap) Close(op trace.Operation) (err error) {
 	defer trace.End(trace.Begin(""))
 
+	numWriter := 0
 	closeStream := func(prefix patricia.Prefix, item patricia.Item) error {
 		if aw, ok := item.(*ArchiveWriter); ok && aw.writer != nil {
 			aw.writer.Close()
 			aw.tarWriter.Close()
 			aw.writer = nil
 			aw.tarWriter = nil
+			numWriter++
 		}
 		return nil
 	}
-
 	wm.prefixTrie.Visit(closeStream)
+
+	// wait for all the streams to finish
+	for i := 0; i < numWriter; i++ {
+		result := <- wm.errchan
+		if result != nil {
+			err = result
+		}
+	}
+	return
 }
 
 // FindArchiveReaders finds all archive readers that are within the container source path.  For example,

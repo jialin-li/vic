@@ -557,6 +557,9 @@ func (h *StorageHandlersImpl) ImportArchive(params storage.ImportArchiveParams) 
 	if err != nil {
 		// hickeng: see if we can return usefully typed errors here
 		op.Errorf("import failed: %s", err)
+		if os.IsNotExist(err) {
+			return storage.NewImportArchiveNotFound()
+		}
 		return storage.NewExportArchiveInternalServerError()
 	}
 
@@ -630,6 +633,9 @@ func (h *StorageHandlersImpl) StatPath(params storage.StatPathParams) middleware
 	fileStat, err := dataSource.Stat(op, filterSpec)
 	if err != nil {
 		op.Errorf("Error getting datasource stats: %s", err.Error())
+		if os.IsNotExist(err) {
+			return storage.NewStatPathNotFound()
+		}
 		return storage.NewStatPathInternalServerError()
 	}
 

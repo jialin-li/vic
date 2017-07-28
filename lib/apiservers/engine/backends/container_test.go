@@ -364,7 +364,7 @@ func (m *MockContainerProxy) ArchiveExportReader(op trace.Operation, store, ance
 	return nil, nil
 }
 
-func (m *MockContainerProxy) ArchiveImportWriter(op trace.Operation, store, deviceID string, filterSpec archive.FilterSpec) (io.WriteCloser, error) {
+func (m *MockContainerProxy) ArchiveImportWriter(op trace.Operation, store, deviceID string, filterSpec archive.FilterSpec, errchan chan error) (io.WriteCloser, error) {
 	return nil, nil
 }
 func (m *MockContainerProxy) StatPath(op trace.Operation, sotre, deviceID string, filterSpec archive.FilterSpec) (*types.ContainerPathStat, error) {

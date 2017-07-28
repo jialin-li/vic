@@ -57,14 +57,14 @@ func Unpack(op trace.Operation, tarStream io.Reader, filter *FilterSpec, root st
 	fi, err := os.Stat(root)
 	if err != nil {
 		// the target unpack path does not exist. We should not get here.
-		op.Errorf("tar unpack target does not exist: %s", root)
-		return err
+		op.Errorf("tar unpack target does not exist: %s, received err: %s", root, err)
+		return os.ErrNotExist
 	}
 
 	if !fi.IsDir() {
 		err := fmt.Errorf("unpack root target is not a directory: %s", root)
 		op.Error(err)
-		return err
+		return os.ErrNotExist
 	}
 
 	// process the tarball onto the filesystem

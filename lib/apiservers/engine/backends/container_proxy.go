@@ -97,7 +97,7 @@ type VicContainerProxy interface {
 	StreamContainerStats(ctx context.Context, config *convert.ContainerStatsConfig) error
 
 	ArchiveExportReader(op trace.Operation, store, ancestorStore, deviceID, ancestor string, data bool, filterSpec archive.FilterSpec) (io.ReadCloser, error)
-	ArchiveImportWriter(op trace.Operation, store, deviceID string, filterSpec archive.FilterSpec) (io.WriteCloser, error)
+	ArchiveImportWriter(op trace.Operation, store, deviceID string, filterSpec archive.FilterSpec, errchan chan error) (io.WriteCloser, error)
 	StatPath(op trace.Operation, sotre, deviceID string, filterSpec archive.FilterSpec) (*types.ContainerPathStat, error)
 
 	Stop(vc *viccontainer.VicContainer, name string, seconds *int, unbound bool) error
@@ -783,7 +783,7 @@ func (c *ContainerProxy) ArchiveExportReader(op trace.Operation, store, ancestor
 
 // ArchiveImportWriter initializes a write stream for a path.  This is usually called
 // for gettine a writer during docker cp TO container.
-func (c *ContainerProxy) ArchiveImportWriter(op trace.Operation, store, deviceID string, filterSpec archive.FilterSpec) (io.WriteCloser, error) {
+func (c *ContainerProxy) ArchiveImportWriter(op trace.Operation, store, deviceID string, filterSpec archive.FilterSpec, errchan chan error) (io.WriteCloser, error) {
 	defer trace.End(trace.Begin(deviceID))
 
 	if store == "" || deviceID == "" {
@@ -822,21 +822,27 @@ func (c *ContainerProxy) ArchiveImportWriter(op trace.Operation, store, deviceID
 		}
 		params = params.WithFilterSpec(spec)
 
+		var plErr error
 		_, err = c.client.Storage.ImportArchive(params)
 		if err != nil {
 			switch err := err.(type) {
 			case *storage.ImportArchiveInternalServerError:
-				plErr := InternalServerError(fmt.Sprintf("Server error from archive writer for device %s", deviceID))
+				plErr = InternalServerError(fmt.Sprintf("Server error from archive writer for device %s", deviceID))
 				op.Errorf(plErr.Error())
 				pipeReader.CloseWithError(plErr)
 			case *storage.ImportArchiveLocked:
-				plErr := ResourceLockedError(fmt.Sprintf("Resource locked for device %s", deviceID))
+				plErr = ResourceLockedError(fmt.Sprintf("Resource locked for device %s", deviceID))
+				op.Errorf(plErr.Error())
+				pipeReader.CloseWithError(plErr)
+			case *storage.ImportArchiveNotFound:
+				plErr = ResourceNotFoundError("", "file or directory")
 				op.Errorf(plErr.Error())
 				pipeReader.CloseWithError(plErr)
 			default:
 				//Check for EOF.  Since the connection, transport, and data handling are
 				//encapsulated inside of Swagger, we can only detect EOF by checking the
 				//error string
+				plErr = InternalServerError(err.Error())
 				if strings.Contains(err.Error(), swaggerSubstringEOF) {
 					op.Errorf(err.Error())
 					pipeReader.Close()
@@ -848,6 +854,9 @@ func (c *ContainerProxy) ArchiveImportWriter(op trace.Operation, store, deviceID
 		} else {
 			pipeReader.Close()
 		}
+
+		op.Debugf("Stream for device %s has returned from PL. Err received is %v ", deviceID, plErr)
+		errchan <- plErr
 	}()
 
 	return pipeWriter, nil
@@ -873,7 +882,12 @@ func (c *ContainerProxy) StatPath(op trace.Operation, store, deviceID string, fi
 	statPathOk, err := c.client.Storage.StatPath(statPathParams)
 	if err != nil {
 		op.Errorf(err.Error())
-		return nil, InternalServerError(err.Error())
+		switch err := err.(type) {
+		case *storage.StatPathNotFound:
+			return nil, ResourceNotFoundError("", "file or directory")
+		default:
+			return nil, InternalServerError(err.Error())
+		}
 	}
 
 	stat := &types.ContainerPathStat{
