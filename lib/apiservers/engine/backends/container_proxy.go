@@ -97,7 +97,7 @@ type VicContainerProxy interface {
 	StreamContainerStats(ctx context.Context, config *convert.ContainerStatsConfig) error
 
 	ArchiveExportReader(op trace.Operation, store, ancestorStore, deviceID, ancestor string, data bool, filterSpec archive.FilterSpec) (io.ReadCloser, error)
-	ArchiveImportWriter(op trace.Operation, store, deviceID string, filterSpec archive.FilterSpec) (io.WriteCloser, error)
+	ArchiveImportWriter(op trace.Operation, store, deviceID string, filterSpec archive.FilterSpec, wg *sync.WaitGroup, errspot *error) (io.WriteCloser, error)
 	StatPath(op trace.Operation, sotre, deviceID string, filterSpec archive.FilterSpec) (*types.ContainerPathStat, error)
 
 	Stop(vc *viccontainer.VicContainer, name string, seconds *int, unbound bool) error
@@ -783,7 +783,7 @@ func (c *ContainerProxy) ArchiveExportReader(op trace.Operation, store, ancestor
 
 // ArchiveImportWriter initializes a write stream for a path.  This is usually called
 // for gettine a writer during docker cp TO container.
-func (c *ContainerProxy) ArchiveImportWriter(op trace.Operation, store, deviceID string, filterSpec archive.FilterSpec) (io.WriteCloser, error) {
+func (c *ContainerProxy) ArchiveImportWriter(op trace.Operation, store, deviceID string, filterSpec archive.FilterSpec, wg *sync.WaitGroup, errptr *error) (io.WriteCloser, error) {
 	defer trace.End(trace.Begin(deviceID))
 
 	if store == "" || deviceID == "" {
@@ -807,6 +807,9 @@ func (c *ContainerProxy) ArchiveImportWriter(op trace.Operation, store, deviceID
 
 	go func() {
 		defer close(done)
+		if wg != nil {
+			defer wg.Done()
+		}
 
 		// encodedFilter and destination are not required (from swagger spec) because
 		// they are allowed to be empty.
@@ -847,6 +850,10 @@ func (c *ContainerProxy) ArchiveImportWriter(op trace.Operation, store, deviceID
 			}
 		} else {
 			pipeReader.Close()
+		}
+
+		if errptr != nil {
+			*errptr = err
 		}
 	}()
 

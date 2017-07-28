@@ -23,6 +23,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -130,7 +131,7 @@ func (c *Container) ContainerExtractToDir(name, path string, noOverwriteDirNonDi
 	return err
 }
 
-func (c *Container) importToContainer(op trace.Operation, vc *viccontainer.VicContainer, target string, content io.Reader) error {
+func (c *Container) importToContainer(op trace.Operation, vc *viccontainer.VicContainer, target string, content io.Reader) (err error) {
 	rawReader, err := archive.DecompressStream(content)
 	if err != nil {
 		op.Errorf("Input tar stream to ContainerExtractToDir not recognized: %s", err.Error())
@@ -141,7 +142,14 @@ func (c *Container) importToContainer(op trace.Operation, vc *viccontainer.VicCo
 	mounts := mountsFromContainer(vc)
 	mounts = append(mounts, types.MountPoint{Destination: "/"})
 	writerMap := NewArchiveStreamWriterMap(op, mounts, target)
-	defer writerMap.Close() // This should shutdown all the stream connections to the portlayer.
+	defer func() {
+		// This should shutdown all the stream connections to the portlayer.
+		e1 := writerMap.Close(op)
+		if err == nil {
+			err = e1
+			op.Debugf("import to container: assigned err as %v", err)
+		}
+	}()
 
 	for {
 		header, err := tarReader.Next()
@@ -255,6 +263,13 @@ type ArchiveWriter struct {
 type ArchiveStreamWriterMap struct {
 	prefixTrie *patricia.Trie
 	op         trace.Operation
+	waitErrs   *WaitErrors
+}
+
+type WaitErrors struct {
+	wg   *sync.WaitGroup
+	idx  int
+	errs []error
 }
 
 // NewArchiveStreamWriterMap creates a new ArchiveStreamWriterMap.  The map contains all information
@@ -267,6 +282,8 @@ func NewArchiveStreamWriterMap(op trace.Operation, mounts []types.MountPoint, de
 	writerMap := &ArchiveStreamWriterMap{}
 	writerMap.prefixTrie = patricia.NewTrie()
 	writerMap.op = op
+	writerMap.waitErrs = &WaitErrors{wg: &sync.WaitGroup{}, idx: 0}
+	writerMap.waitErrs.errs = make([]error, len(mounts))
 
 	for _, m := range mounts {
 		aw := ArchiveWriter{
@@ -432,12 +449,13 @@ func (wm *ArchiveStreamWriterMap) WriterForAsset(proxy VicContainerProxy, cid, c
 			deviceID = aw.mountPoint.Name
 			store = constants.VolumeStoreName
 		}
-		rawWriter, err := proxy.ArchiveImportWriter(wm.op, store, deviceID, aw.filterSpec)
+		rawWriter, err := proxy.ArchiveImportWriter(wm.op, store, deviceID, aw.filterSpec, wm.waitErrs.wg, &wm.waitErrs.errs[wm.waitErrs.idx])
 		if err != nil {
 			err = fmt.Errorf("Unable to initialize import stream writer for mount prefix %s", aw.mountPoint.Destination)
 			wm.op.Errorf(err.Error())
 			return nil, err
 		}
+		wm.waitErrs.idx++
 		aw.writer = rawWriter
 		aw.tarWriter = tar.NewWriter(rawWriter)
 	}
@@ -446,20 +464,31 @@ func (wm *ArchiveStreamWriterMap) WriterForAsset(proxy VicContainerProxy, cid, c
 }
 
 // Close visits all the archive writer in the trie and closes the actual io.WritCloser
-func (wm *ArchiveStreamWriterMap) Close() {
+func (wm *ArchiveStreamWriterMap) Close(op trace.Operation) (err error) {
 	defer trace.End(trace.Begin(""))
 
+	numWriter := 0
 	closeStream := func(prefix patricia.Prefix, item patricia.Item) error {
 		if aw, ok := item.(*ArchiveWriter); ok && aw.writer != nil {
 			aw.writer.Close()
 			aw.tarWriter.Close()
 			aw.writer = nil
 			aw.tarWriter = nil
+			numWriter++
 		}
 		return nil
 	}
-
 	wm.prefixTrie.Visit(closeStream)
+
+	wm.waitErrs.wg.Add(numWriter)
+	wm.waitErrs.wg.Wait()
+	for _, v := range wm.waitErrs.errs {
+		if v != nil {
+			err = v
+			op.Debugf("%v", v.Error())
+		}
+	}
+	return
 }
 
 // FindArchiveReaders finds all archive readers that are within the container source path.  For example,
