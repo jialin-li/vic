@@ -176,7 +176,7 @@ Concurrent copy: create processes to copy a small file from host to offline cont
     :FOR  ${pid}  IN  @{pids}
     \   Log To Console  \nWaiting for ${pid}
     \   ${res}=  Wait For Process  ${pid}
-    \   Log  ${res.stdout}
+    \   Log  process ${pid} finished with result: ${res.stdout}
     \   Should Be Equal As Integers  ${res.rc}  0
     ${output}=  Start Container and Exec Command  concurrent  ls /
     Log To Console  \nCheck if the copy operations succeeded
@@ -196,7 +196,7 @@ Concurrent copy: repeat copy a large file from host to offline container several
     :FOR  ${pid}  IN  @{pids}
     \   Log To Console  \nWaiting for ${pid}
     \   ${res}=  Wait For Process  ${pid}
-    \   Log  ${res.stdout}
+    \   Log  process ${pid} finished with result: ${res.stdout}
     \   Should Be Equal As Integers  ${res.rc}  0
     ${output}=  Start Container and Exec Command  concurrent  ls /vol1
     Log To Console  \nCheck if the copy operations succeeded
@@ -216,7 +216,7 @@ Concurrent copy: repeat copy a large file from offline container to host several
     :FOR  ${pid}  IN  @{pids}
     \   Log To Console  \nWaiting for ${pid}
     \   ${res}=  Wait For Process  ${pid}
-    \   Log  ${res.stdout}
+    \   Log  process ${pid} finished with result: ${res.stdout}
     \   Should Be Equal As Integers  ${res.rc}  0
     Log To Console  \nCheck if the copy operations succeeded
     :FOR  ${idx}  IN RANGE  0  10
@@ -247,7 +247,7 @@ Sub volumes: copy from offline container to host
     Should Be Equal As Integers  ${rc}  0
     Should Not Contain  ${output}  Error
     # Needed to help diagnose failures
-    ${rc}  ${output}=  Run And Return Rc And Output  find ${CURDIR}/result -ls
+    ${rc}  ${output}=  Run And Return Rc And Output  find ${CURDIR}/result
     Log  ${output}
     Remove Directory  ${CURDIR}/result  recursive=True
     ${rc}  ${output}=  Run And Return Rc And Output  docker %{VCH-PARAMS} cp subVol:/mnt ${CURDIR}/result

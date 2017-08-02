@@ -195,7 +195,7 @@ Concurrent copy: repeat copy a large file from host to offline container several
     :FOR  ${pid}  IN  @{pids}
     \   Log To Console  \nWaiting for ${pid}
     \   ${res}=  Wait For Process  ${pid}
-    \   Log  ${res.stdout}
+    \   Log  process ${pid} finished with result: ${res.stdout}
     \   Should Be Equal As Integers  ${res.rc}  0
     ${rc}  ${output}=  Run And Return Rc And Output  docker %{VCH-PARAMS} exec concurrent ls /vol1
     Should Be Equal As Integers  ${rc}  0
@@ -214,7 +214,7 @@ Concurrent copy: repeat copy a large file from offline container to host several
     :FOR  ${pid}  IN  @{pids}
     \   Log To Console  \nWaiting for ${pid}
     \   ${res}=  Wait For Process  ${pid}
-    \   Log  ${res.stdout}
+    \   Log  process ${pid} finished with result: ${res.stdout}
     \   Should Be Equal As Integers  ${res.rc}  0
     Log To Console  \nCheck if the copy operations succeeded
     :FOR  ${idx}  IN RANGE  0  10
